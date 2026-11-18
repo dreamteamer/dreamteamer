@@ -67,48 +67,47 @@ export const WORKSPACE_FLAGS: Record<string, string[]> = {
 
 export { CORE_VERBS } from "./coreVerbs.ts"
 
-/** A verb's file under commands/. `run` returns the exit code — or nothing, when the process must
- *  stay alive (`compile --watch`). Each command opens the workspace itself, so `init`, `help`,
- *  `version` and `check --alone` can answer without one. */
-interface CommandModule {
-  run(args: string[]): Promise<number | void>
-}
+/** A core verb: its exit code — or nothing, when the process must stay alive (`compile --watch`).
+ *  Each command opens the workspace itself, so `init`, `help`, `version` and `check --alone` can
+ *  answer without one. */
+type Command = (args: string[]) => Promise<number | void>
 
-/** Every core verb, one file each. Literal import paths, so each stays lazy and `layers` sees the edge. */
-const COMMANDS: Record<string, () => Promise<CommandModule>> = {
-  init: () => import("./commands/init.ts"),
-  install: () => import("./commands/install.ts"),
-  update: () => import("./commands/update.ts"),
-  compile: () => import("./commands/compile.ts"),
-  check: () => import("./commands/check.ts"),
-  exports: () => import("./commands/exports.ts"),
-  setup: () => import("./commands/setup.ts"),
-  doctor: () => import("./commands/doctor.ts"),
-  changes: () => import("./commands/changes.ts"),
-  commit: () => import("./commands/commit.ts"),
-  status: () => import("./commands/status.ts"),
-  help: () => import("./commands/help.ts"),
-  list: () => import("./commands/list.ts"),
-  add: () => import("./commands/add.ts"),
-  values: () => import("./commands/values.ts"),
-  get: () => import("./commands/get.ts"),
-  set: () => import("./commands/set.ts"),
-  rm: () => import("./commands/rm.ts"),
-  rename: () => import("./commands/rename.ts"),
-  history: () => import("./commands/history.ts"),
-  diff: () => import("./commands/diff.ts"),
-  revert: () => import("./commands/revert.ts"),
-  reorder: () => import("./commands/reorder.ts"),
-  next: () => import("./commands/next.ts"),
-  "add-field": () => import("./commands/add-field.ts"),
-  "set-field": () => import("./commands/set-field.ts"),
-  "rm-field": () => import("./commands/rm-field.ts"),
-  "rename-field": () => import("./commands/rename-field.ts"),
-  "rename-value": () => import("./commands/rename-value.ts"),
-  relations: () => import("./commands/relations.ts"),
-  relocate: () => import("./commands/relocate.ts"),
-  resolve: () => import("./commands/resolve.ts"),
-  fmt: () => import("./commands/fmt.ts"),
+/** Every core verb, one file each. Each entry imports its file lazily and calls that module's own
+ *  function, so the call is statically resolved and `layers` sees the edge. */
+const COMMANDS: Record<string, Command> = {
+  init: async args => (await import("./commands/init.ts")).run(args),
+  install: async args => (await import("./commands/install.ts")).run(args),
+  update: async args => (await import("./commands/update.ts")).run(args),
+  compile: async args => (await import("./commands/compile.ts")).run(args),
+  check: async args => (await import("./commands/check.ts")).run(args),
+  exports: async args => (await import("./commands/exports.ts")).run(args),
+  setup: async args => (await import("./commands/setup.ts")).run(args),
+  doctor: async args => (await import("./commands/doctor.ts")).run(args),
+  changes: async args => (await import("./commands/changes.ts")).run(args),
+  commit: async args => (await import("./commands/commit.ts")).run(args),
+  status: async args => (await import("./commands/status.ts")).run(args),
+  help: async () => (await import("./commands/help.ts")).run(),
+  list: async args => (await import("./commands/list.ts")).run(args),
+  add: async args => (await import("./commands/add.ts")).run(args),
+  values: async args => (await import("./commands/values.ts")).run(args),
+  get: async args => (await import("./commands/get.ts")).run(args),
+  set: async args => (await import("./commands/set.ts")).run(args),
+  rm: async args => (await import("./commands/rm.ts")).run(args),
+  rename: async args => (await import("./commands/rename.ts")).run(args),
+  history: async args => (await import("./commands/history.ts")).run(args),
+  diff: async args => (await import("./commands/diff.ts")).run(args),
+  revert: async args => (await import("./commands/revert.ts")).run(args),
+  reorder: async args => (await import("./commands/reorder.ts")).run(args),
+  next: async args => (await import("./commands/next.ts")).run(args),
+  "add-field": async args => (await import("./commands/add-field.ts")).run(args),
+  "set-field": async args => (await import("./commands/set-field.ts")).run(args),
+  "rm-field": async args => (await import("./commands/rm-field.ts")).run(args),
+  "rename-field": async args => (await import("./commands/rename-field.ts")).run(args),
+  "rename-value": async args => (await import("./commands/rename-value.ts")).run(args),
+  relations: async args => (await import("./commands/relations.ts")).run(args),
+  relocate: async args => (await import("./commands/relocate.ts")).run(args),
+  resolve: async args => (await import("./commands/resolve.ts")).run(args),
+  fmt: async args => (await import("./commands/fmt.ts")).run(args),
 }
 /** The spellings of `version` — not verbs of the grammar, so not in COMMANDS. */
 const VERSION = new Set(["version", "--version", "-v"])
@@ -126,9 +125,11 @@ export async function run(argv: string[]): Promise<void> {
           `unknown flag "--${bad}" on \`dt ${cmd}\`\n  known: ${WORKSPACE_FLAGS[cmd].map(f => `--${f}`).join(", ") || "(none — this verb takes no flags)"}`
         )
     }
-    const load = VERSION.has(cmd) ? () => import("./commands/version.ts") : COMMANDS[cmd]
-    if (load) {
-      const code = await (await load()).run(rest)
+    const command: Command | undefined = VERSION.has(cmd)
+      ? async () => (await import("./commands/version.ts")).run()
+      : COMMANDS[cmd]
+    if (command) {
+      const code = await command(rest)
       if (typeof code === "number") process.exit(code)
       return
     }

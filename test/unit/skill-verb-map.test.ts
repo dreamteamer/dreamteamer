@@ -10,8 +10,14 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..")
 const cli = fs.readFileSync(path.join(root, "src/cli.ts"), "utf8")
 const skill = fs.readFileSync(path.join(root, "skills/using-dreamteamer/SKILL.md"), "utf8")
 
-// The dispatch is the COMMANDS registry in cli.ts — one lazy `import("./commands/<verb>.ts")` per verb.
-const dispatch = new Set([...cli.matchAll(/^\s+['"]?([a-z-]+)['"]?: \(\) => import\(/gm)].map(m => m[1]))
+// The dispatch is the COMMANDS registry in cli.ts — per verb, a lazy `import("./commands/<verb>.ts")`
+// whose own function is called. Either quote and any spacing, so a reformat cannot empty the match.
+const entries = [
+  ...cli.matchAll(/^\s+['"]?([a-z-]+)['"]?\s*:\s*async\b[^\n]*?import\(\s*['"]\.\/commands\/([a-z-]+)\.ts['"]/gm),
+]
+for (const [, verb, file] of entries)
+  assert.equal(file, verb, `COMMANDS.${verb} loads commands/${file}.ts — a verb's file is named after it`)
+const dispatch = new Set(entries.map(m => m[1]))
 // A PIN THAT MATCHES NOTHING PASSES VACUOUSLY in the SKILL.md → dispatch direction's mirror: an empty
 // set would fail the first test loudly, but a half-matching pattern would not — so name a floor.
 assert.ok(
