@@ -11,7 +11,48 @@
 import fs from "node:fs"
 import path from "node:path"
 import { readExports } from "./exports.ts"
-import type { FoundWorkspace } from "./record-types.ts"
+import type { FoundWorkspace, WorkspacePkg } from "./record-types.ts"
+
+/** One `git_modules` entry as declared, resolved and widened across every clone that declares it. */
+export interface GitModuleEntry {
+  url: string
+  ref: string
+  records: string[] | undefined
+  open: boolean
+  module: boolean
+  /** who declares it: `null` for this workspace, else the clone path that does */
+  declarers: (string | null)[]
+}
+
+export interface DeclaredGitModules {
+  map: Map<string, GitModuleEntry>
+  nested: {
+    by: string
+    name: string
+    url: string
+    ref: string
+    records: string[] | undefined
+    open: boolean
+    top: { url: string; ref: string }
+  }[]
+  mismatches: { name: string; by: string; what: "url" | "ref"; theirs: string }[]
+  unmet: { by: string; holder: string }[]
+}
+
+export interface LayerEntry {
+  name: string
+  records: string[] | null
+  module: boolean
+  via: string[]
+}
+
+/** One env key a module declares, as `.env.example` lists it. */
+export interface EnvExampleEntry {
+  key: string
+  description?: string
+  example?: string
+  modules?: string[]
+}
 
 // path segments that mean "the thing below me is a module of the thing above me", never a workspace
 const MODULE_SEGMENTS = new Set(["node_modules", "git_modules", "modules"])
@@ -43,7 +84,7 @@ export function findWorkspace(start = process.cwd()): FoundWorkspace {
     // a workspace named with `--workspace` (bin/dreamteamer.js pins it, for THIS process only — never
     // in the environment, so no child inherits it) is never climbed out of, even when it is a clone
     // under another workspace's git_modules/ — that is exactly the case it names.
-    if (found.root === globalThis[Symbol.for("dreamteamer.workspace")]) break
+    if (found.root === (globalThis as Record<symbol, unknown>)[Symbol.for("dreamteamer.workspace")]) break
     if (!nestedAsModule(higher.root, found.root)) break
     found = higher
   }
@@ -65,16 +106,22 @@ export function findWorkspace(start = process.cwd()): FoundWorkspace {
  *  `install` lays a symlink under each declarer of a top-level clone. Nothing here refuses; every
  *  disagreement is returned to be said. `records` is the union of the lists, `open` when some declarer
  *  named none; a nested `module: true` is not hoisted. */
-export function declaredGitModules(pkg, root = null) {
-  const map = new Map(),
-    nested = [],
-    mismatches = [],
-    unmet = []
-  const validate = (at, entry) => {
+export function declaredGitModules(
+  pkg: WorkspacePkg | null | undefined,
+  root: string | null = null
+): DeclaredGitModules {
+  const map = new Map<string, GitModuleEntry>(),
+    nested: DeclaredGitModules["nested"] = [],
+    mismatches: DeclaredGitModules["mismatches"] = [],
+    unmet: DeclaredGitModules["unmet"] = []
+  const validate = (at: string, entry: any) => {
     if (entry?.module !== undefined && typeof entry.module !== "boolean")
       throw new Error(`${at}.module must be true or false (got ${JSON.stringify(entry.module)})`)
     const r = entry?.records
-    if (r !== undefined && (!Array.isArray(r) || !r.length || r.some(c => typeof c !== "string" || !c.trim()))) {
+    if (
+      r !== undefined &&
+      (!Array.isArray(r) || !r.length || r.some((c: unknown) => typeof c !== "string" || !c.trim()))
+    ) {
       throw new Error(`${at}.records must be a non-empty list of collection names (got ${JSON.stringify(r)})`)
     }
     const { url, ref = "main" } = entry ?? {}
@@ -84,7 +131,7 @@ export function declaredGitModules(pkg, root = null) {
     map.set(name, { ...validate(`git_modules.${name}`, entry), module: entry?.module === true, declarers: [null] })
   }
   if (!root) return { map, nested, mismatches, unmet }
-  const widen = (have, e) => {
+  const widen = (have: GitModuleEntry, e: ReturnType<typeof validate>): void => {
     if (e.open) have.open = true
     else have.records = [...new Set([...(have.records ?? []), ...e.records])]
   }
@@ -92,7 +139,7 @@ export function declaredGitModules(pkg, root = null) {
   const clones = new Map([...map.keys()].map(n => [`git_modules/${n}`, n]))
   for (const [by, name] of clones) {
     const dir = path.join(root, by)
-    let own, holders
+    let own: Record<string, unknown>, holders: Set<string>
     try {
       own = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")).dreamteamer?.git_modules ?? {}
     } catch {
@@ -101,6 +148,7 @@ export function declaredGitModules(pkg, root = null) {
     holders = new Set(
       Object.values(readExports(dir) ?? {})
         .flatMap(ids => Object.values(ids).map(e => e.from))
+        .filter((from): from is string => typeof from === "string")
         .filter(Boolean)
     )
     for (const holder of holders) {
@@ -140,8 +188,8 @@ export function declaredGitModules(pkg, root = null) {
  *  listed here; a clone not on disk is listed (not installed). `records:` still makes an entry a layer and
  *  NARROWS it to the listed collections; `module: true` declares one too (and is refused downstream when the
  *  clone has no workspace module to contribute). `root` absent reads only the declarations. */
-export function layerEntries(pkg, root = null) {
-  const out = []
+export function layerEntries(pkg: WorkspacePkg | null | undefined, root: string | null = null): LayerEntry[] {
+  const out: LayerEntry[] = []
   for (const [name, e] of declaredGitModules(pkg, root).map) {
     const clone = root ? path.join(root, "git_modules", name) : null
     // a declaration naming no records reads every shared collection of a WORKSPACE clone — or of one not on
@@ -156,7 +204,7 @@ export function layerEntries(pkg, root = null) {
 }
 
 /** The `workspace_module` a directory's own manifest names, or null — what makes a clone a workspace. */
-export function cloneWorkspaceModule(dir) {
+export function cloneWorkspaceModule(dir: string): string | null {
   try {
     return JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")).dreamteamer?.workspace_module || null
   } catch {
@@ -165,7 +213,7 @@ export function cloneWorkspaceModule(dir) {
 }
 
 /** Is `inner` reached from `outer` by descending through a module folder? */
-export function nestedAsModule(outer, inner) {
+export function nestedAsModule(outer: string, inner: string): boolean {
   return path
     .relative(outer, inner)
     .split(path.sep)
@@ -185,7 +233,10 @@ export function nestedAsModule(outer, inner) {
  *  warning rather than clobbered. */
 export const EDITOR_EXTENSION_ID = "dreamteamer.dreamteamer-vscode"
 export const EDITOR_RECOMMENDATIONS = [EDITOR_EXTENSION_ID, "Anthropic.claude-code"]
-export function ensureEditorRecommendation(root, warn = console.warn) {
+export function ensureEditorRecommendation(
+  root: string,
+  warn: (message: string) => void = console.warn
+): "written" | "present" | "left" | "merged" {
   const file = path.join(root, ".vscode", "extensions.json")
   if (!fs.existsSync(file)) {
     fs.mkdirSync(path.dirname(file), { recursive: true })
@@ -227,20 +278,25 @@ export function ensureEditorRecommendation(root, warn = console.warn) {
  *  declaration) or the module set is not `complete` (a declared module not on disk yet: its keys would
  *  go and come back). A repeated engine block for one key goes with the first one's rewrite. Every
  *  other line is kept byte for byte, its line ending included. Returns `{ added, moved, dropped }`. */
-export function ensureEnvExample(root, entries, header = "", { keep = [], complete = true } = {}) {
+export function ensureEnvExample(
+  root: string,
+  entries: EnvExampleEntry[],
+  header = "",
+  { keep = [], complete = true }: { keep?: string[]; complete?: boolean } = {}
+): { added: string[]; moved: string[]; dropped: string[] } {
   const file = path.join(root, ".env.example")
   const exists = fs.existsSync(file)
-  const result = { added: [], moved: [], dropped: [] }
+  const result: { added: string[]; moved: string[]; dropped: string[] } = { added: [], moved: [], dropped: [] }
   if (!entries.length && !exists) return result
   const existing = exists ? fs.readFileSync(file, "utf8") : header
   const declared = new Map(entries.map(e => [e.key, e]))
-  const commentFor = e =>
+  const commentFor = (e: EnvExampleEntry): string =>
     `# ${e.description ?? `declared by ${e.modules.join(", ")}`}${e.description && e.modules?.length ? ` (module ${e.modules.join(", ")})` : ""}`
   const lines = existing.split(/(?<=\n)/) // each line keeps its own ending
-  const text = l => l.replace(/\r?\n$/, "")
+  const text = (l: string): string => l.replace(/\r?\n$/, "")
   const ENGINE = /^# (?:declared by .+|.* \(module .+\))$/
-  const seen = new Set()
-  const out = []
+  const seen = new Set<string>()
+  const out: string[] = []
   for (let i = 0; i < lines.length; i++) {
     const key = /^([A-Za-z_][A-Za-z0-9_]*)=/.exec(text(lines[i]))?.[1]
     const prev = out.length - 1
@@ -289,7 +345,7 @@ export function ensureEnvExample(root, entries, header = "", { keep = [], comple
  * an extension writes) are build output, gitignored like `.claude/` and `.agents/`. Append-if-missing,
  * root-anchored so a module's own CLAUDE.md is never ignored. Returns the lines it added.
  */
-export function ensureGitignored(root, files) {
+export function ensureGitignored(root: string, files: string[]): string[] {
   const file = path.join(root, ".gitignore")
   const existing = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : ""
   const have = new Set(existing.split("\n").map(l => l.trim()))

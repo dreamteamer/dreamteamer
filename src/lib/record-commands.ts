@@ -73,7 +73,7 @@ export function commandsFor(store: Store, collection: string, ids: string[] = []
       rows.push({ ...row, invocation: `${slash(cmd.name)} ${collection}` })
       continue
     }
-    const states = {}
+    const states: Record<string, string> = {}
     for (const id of ids) {
       const record = resolve(`${collection}/${id}`)
       let state = "not-applicable"

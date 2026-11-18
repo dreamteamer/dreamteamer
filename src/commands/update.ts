@@ -24,9 +24,20 @@ import {
 import { EXIT } from "./setup.ts"
 import { moduleIdOf } from "./compile.ts"
 import { navGuard, navDocGuard, shipsFragment, NAV_SETTINGS_LINE, NAV_GUARD_LINE } from "../lib/nav-fragments.ts"
-import type { Log, Opener } from "../lib/workspace-types.ts"
+import type { planNavFragments } from "../lib/nav-fragments.ts"
+import type { Log, Opener, Workspace } from "../lib/workspace-types.ts"
 
-const gitOk = (root, args) => {
+/** What `dt update` was asked to move: a package (and the version asked for), or the engine. */
+export interface UpdateArgs {
+  name: string | null
+  version: string | null
+  engine: boolean
+  allow: Set<string>
+  from: string | null
+  noCommit: boolean
+}
+
+const gitOk = (root: string, args: string[]): boolean => {
   try {
     execFileSync("git", args, { cwd: root, stdio: "ignore" })
     return true
@@ -41,8 +52,15 @@ const gitOk = (root, args) => {
  * `engine: true` targets `dreamteamer` itself.
  */
 export async function updateModules(
-  ws,
-  { name = null, version = null, engine = false, allow = new Set(), from = null, noCommit = false } = {},
+  ws: Workspace,
+  {
+    name = null,
+    version = null,
+    engine = false,
+    allow = new Set(),
+    from = null,
+    noCommit = false,
+  }: Partial<UpdateArgs> = {},
   {
     open,
     npm = resolveNpm(),
@@ -247,7 +265,21 @@ export async function updateModules(
 const HERE = fileURLToPath(import.meta.url)
 const CHILD = path.join(path.dirname(HERE), `update-setup${path.extname(HERE)}`)
 /** Run setupAndCommit in update-setup (src/*.ts, or dist/*.js once built); its result, or null when the child did not leave one. */
-function setupInChild(root, names, { subject, processEnv, noCommit, nav = null }) {
+function setupInChild(
+  root: string,
+  names: string[],
+  {
+    subject,
+    processEnv,
+    noCommit,
+    nav = null,
+  }: {
+    subject: string
+    processEnv: NodeJS.ProcessEnv
+    noCommit: boolean
+    nav?: ReturnType<typeof planNavFragments> | null
+  }
+) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dt-update-"))
   const out = path.join(dir, "result.json")
   try {
@@ -268,8 +300,8 @@ function setupInChild(root, names, { subject, processEnv, noCommit, nav = null }
 }
 
 /** The `dt update` argv: a target (`name`, `name@version`), `--engine`, `--allow downgrade|nav-reset`, `--from <dir>`, `--no-commit`. */
-export function parseUpdateArgs(argv) {
-  const out = {
+export function parseUpdateArgs(argv: string[]): UpdateArgs {
+  const out: UpdateArgs = {
     name: null,
     version: null,
     engine: argv.includes("--engine"),

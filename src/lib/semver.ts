@@ -8,12 +8,14 @@
  *  install-modules.js, because compile reads it and install-modules imports compile. */
 export const EXACT = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/
 
-const parse = v => {
+type Version = [major: number, minor: number, patch: number]
+
+const parse = (v: string): Version | null => {
   const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(v).trim())
   return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null
 }
 
-const cmp = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]
+const cmp = (a: Version, b: Version): number => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]
 
 // true = in range, false = out of range, null = version or range not understood
 export function satisfies(version: string, range: string): boolean | null {

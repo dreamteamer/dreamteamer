@@ -112,7 +112,7 @@ export const INJECTED_FIELDS = {
 }
 
 /** Is `type` a reference to one or more collections, given the names that exist? */
-export function referenceTargets(type, collections) {
+export function referenceTargets(type: unknown, collections: ReadonlySet<string>): string[] | null {
   if (type === "reference") return ["*"]
   if (Array.isArray(type)) return type
   if (typeof type === "string" && !SCALAR_TYPES.includes(type) && collections.has(type)) return [type]
@@ -128,12 +128,20 @@ export function referenceTargets(type, collections) {
  *   defaults — per field, the keys compile supplied (title today; on_delete on references)
  *   errors   — each naming the field and the key
  */
-export function resolveFields(authored: Record<string, any> | undefined, ctx) {
-  const errors = []
-  const warnings = []
-  const defaults = {}
+export interface ResolveFieldsContext {
+  name?: string
+  collections: Iterable<string>
+  peers?: Iterable<string>
+  /** a kind whose records compile writes — never stamped by the store */
+  runtime?: boolean
+}
+
+export function resolveFields(authored: Record<string, any> | undefined, ctx: ResolveFieldsContext) {
+  const errors: string[] = []
+  const warnings: string[] = []
+  const defaults: Record<string, Record<string, any>> = {}
   const known = new Set(Object.keys(authored ?? {}))
-  const fields = {}
+  const fields: Record<string, Record<string, any>> = {}
   // `created` is STAMPED by the store, which a kind whose records compile writes never goes through
   for (const [k, v] of Object.entries(INJECTED_FIELDS)) {
     if (k === "created" && ctx.runtime) continue
@@ -179,7 +187,19 @@ const RECORD_KEYS = ["body", "mirror_of", "unique", "derived", "virtual"]
  * object's `fields` and a map's `values` — under its full path (`details.code`). Pushes onto `errors`
  * and `warnings`; returns the field's reference targets (null when it references nothing).
  */
-function checkField(path, prop, { types, siblings, errors, warnings, top }) {
+interface CheckFieldContext {
+  types: Set<string>
+  siblings: Record<string, any> | undefined
+  errors: string[]
+  warnings: string[]
+  top: boolean
+}
+
+function checkField(
+  path: string,
+  prop: Record<string, any>,
+  { types, siblings, errors, warnings, top }: CheckFieldContext
+): string[] | null {
   const at = `field "${path}"`
   const name = path.split(".").pop()
   const targets = referenceTargets(prop.type, types)
@@ -291,21 +311,23 @@ function checkField(path, prop, { types, siblings, errors, warnings, top }) {
 }
 
 /** The enum's value list, from a list or a map; null when it is neither. */
-export function enumValues(e) {
+export function enumValues(e: unknown): unknown[] | null {
   if (Array.isArray(e)) return e
   if (e && typeof e === "object") return Object.keys(e)
   return null
 }
 
 /** The enum's decoration per value — `{ value: { label, description, icon, color, background } }` — from a map; {} from a list. */
-export function enumChoices(e) {
+export type EnumDecoration = Partial<Record<"label" | "description" | "icon" | "color" | "background", string>>
+
+export function enumChoices(e: unknown): Record<string, EnumDecoration> {
   if (!e || Array.isArray(e) || typeof e !== "object") return {}
-  const out = {}
+  const out: Record<string, EnumDecoration> = {}
   for (const [v, row] of Object.entries(e)) {
     if (!row || typeof row !== "object") continue
-    const r = {}
-    for (const k of ["label", "description", "icon", "color", "background"])
-      if (typeof row[k] === "string") r[k] = row[k]
+    const r: EnumDecoration = {}
+    for (const k of ["label", "description", "icon", "color", "background"] as const)
+      if (typeof (row as EnumDecoration)[k] === "string") r[k] = (row as EnumDecoration)[k]
     out[v] = r
   }
   return out
@@ -313,7 +335,7 @@ export function enumChoices(e) {
 
 /** The default field label — the same rule compile's titleCase has always applied, so a surface
  *  draws a v2 field exactly as it drew the v1 one. */
-export function titleOf(name) {
+export function titleOf(name: string): string {
   return String(name)
     .split(/[_\-\s/]+/)
     .filter(Boolean)
@@ -327,7 +349,7 @@ export function titleOf(name) {
  */
 export function toJsonSchema(
   fields: Record<string, Field>,
-  { constraints = [], collections }: { constraints?: unknown[]; collections?: Iterable<string> } = {}
+  { constraints = [], collections }: { constraints?: unknown[]; collections?: ReadonlySet<string> } = {}
 ): Record<string, any> {
   const properties: Record<string, any> = {}
   const required: string[] = []
@@ -342,7 +364,7 @@ export function toJsonSchema(
   return schema
 }
 
-function propertySchema(f: Field, collections?: Iterable<string>) {
+function propertySchema(f: Field, collections?: ReadonlySet<string>) {
   let s = scalarSchema(f, collections)
   for (const k of PASS_THROUGH) if (f[k] !== undefined && !(f.many && ["minItems", "maxItems"].includes(k))) s[k] = f[k]
   if (f.many) {
@@ -357,7 +379,7 @@ function propertySchema(f: Field, collections?: Iterable<string>) {
   return s
 }
 
-function scalarSchema(f: Field, collections?: Iterable<string>): Record<string, any> {
+function scalarSchema(f: Field, collections?: ReadonlySet<string>): Record<string, any> {
   const t = f.type
   if (referenceTargets(t, collections ?? new Set(Array.isArray(t) ? t : [t]))) return { type: "string" }
   switch (t) {
@@ -388,7 +410,9 @@ function scalarSchema(f: Field, collections?: Iterable<string>): Record<string, 
         : { type: "object", additionalProperties: valueSchema(f.values, collections) }
     case "object": {
       const inner = toJsonSchema(
-        Object.fromEntries(Object.entries(f.fields ?? {}).map(([k, v]) => [k, { ...v, title: undefined }])),
+        Object.fromEntries(
+          Object.entries(f.fields ?? {}).map(([k, v]) => [k, { ...v, title: undefined as string | undefined }])
+        ),
         { collections }
       )
       return inner
@@ -398,8 +422,8 @@ function scalarSchema(f: Field, collections?: Iterable<string>): Record<string, 
   }
 }
 
-function valueSchema(values, collections) {
+function valueSchema(values: unknown, collections?: ReadonlySet<string>): Record<string, any> {
   if (typeof values === "string") return scalarSchema({ type: values }, collections)
-  if (values && typeof values === "object") return propertySchema(values, collections)
+  if (values && typeof values === "object") return propertySchema(values as Field, collections)
   return {}
 }

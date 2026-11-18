@@ -7,6 +7,8 @@
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
+    // src/ is held to noImplicitAny; the tests are not yet
+    "noImplicitAny": false,
     "rootDir": "..",
     "allowJs": true,
     "checkJs": false

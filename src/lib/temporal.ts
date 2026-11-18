@@ -26,7 +26,7 @@ const DATE_TIME =
   /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3})\d*)?\s*(Z|[+-]\d{2}:?\d{2})?$/i
 
 /** `+03:00` for the machine's local offset AT that wall clock — DST-correct, unlike a bare "now" offset. */
-function localOffsetAt(y, mo, d, h, mi, s) {
+function localOffsetAt(y: number, mo: number, d: number, h: number, mi: number, s: number): string {
   const mins = -new Date(y, mo - 1, d, h, mi, s).getTimezoneOffset()
   const sign = mins < 0 ? "-" : "+"
   const abs = Math.abs(mins)
@@ -34,7 +34,7 @@ function localOffsetAt(y, mo, d, h, mi, s) {
 }
 
 /** `+0300` / `+03:00` / `z` → `+03:00` / `Z`. One spelling on disk keeps diffs quiet. */
-function canonicalZone(zone) {
+function canonicalZone(zone: string | undefined): string | null {
   if (!zone) return null
   if (/^z$/i.test(zone)) return "Z"
   return zone.length === 5 ? `${zone.slice(0, 3)}:${zone.slice(3)}` : zone
@@ -48,7 +48,7 @@ function canonicalZone(zone) {
  * laptops. A zoneless date-time is the one case that IS machine-local — that is what "no zone"
  * means, and the normalizer stamps an explicit offset on it before it ever reaches disk.
  */
-export function parseTemporal(value) {
+export function parseTemporal(value: unknown): number | null {
   if (typeof value !== "string" || value === "") return null
 
   const d = DATE_ONLY.exec(value)
@@ -82,7 +82,7 @@ export function parseTemporal(value) {
  * AS WRITTEN — the day in the value's own offset, not in UTC and not in the reader's zone, because
  * "2026-07-28T23:00+03:00" is a meeting on the 28th to everyone who cares about it.
  */
-export function normalizeTemporal(value, format) {
+export function normalizeTemporal(value: unknown, format: unknown): unknown {
   if (typeof value !== "string" || value === "") return value
 
   if (format === "date") {
@@ -108,7 +108,7 @@ export function normalizeTemporal(value, format) {
  * declared date/date-time fields are touched — a plain string that happens to look like a date
  * stays exactly as the author typed it. Recurses through object properties and array items.
  */
-export function normalizeRecord(schema: { properties?: Record<string, any> } | undefined, fields) {
+export function normalizeRecord(schema: { properties?: Record<string, any> } | undefined, fields: any): any {
   if (!schema || fields === null || typeof fields !== "object") return fields
   for (const [key, prop] of Object.entries(schema.properties ?? {})) {
     const value = fields[key]
@@ -158,9 +158,10 @@ export function sortRows<T>(rows: T[], sort: string | null | undefined, schema?:
   const key = desc ? String(sort).slice(1) : String(sort)
   const prop = schema?.properties?.[key]
   const order = prop?.enum ?? prop?.items?.enum
-  const rank = v => (v == null || v === "" ? -1 : order.includes(v) ? order.indexOf(v) : order.length)
+  const rank = (v: unknown): number =>
+    v == null || v === "" ? -1 : order.includes(v) ? order.indexOf(v) : order.length
   const cmp = Array.isArray(order)
-    ? (a, b) => rank(a[key]) - rank(b[key]) || compareValues(a[key] ?? "", b[key] ?? "")
-    : (a, b) => compareValues(a[key] ?? "", b[key] ?? "")
+    ? (a: any, b: any) => rank(a[key]) - rank(b[key]) || compareValues(a[key] ?? "", b[key] ?? "")
+    : (a: any, b: any) => compareValues(a[key] ?? "", b[key] ?? "")
   return rows.sort((a, b) => cmp(a, b) * (desc ? -1 : 1))
 }

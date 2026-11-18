@@ -17,7 +17,35 @@ import { load, dump } from "./yaml.ts"
 
 import { storageOf, isInternal, moduleOf, fieldsOf, idsOf, requiredOf } from "./descriptor.ts"
 import { enumValues } from "./fields.ts"
-import type { Entry, LoadedExtension } from "./workspace-types.ts"
+import type { Entry, HarnessCollection, HarnessFn, LoadedExtension, SourceKind } from "./workspace-types.ts"
+import type { Manifest } from "./record-types.ts"
+
+/** What a harness renderer handed back — blocks keyed by workspace file, and its summary line. */
+type HarnessOutput = Exclude<ReturnType<HarnessFn>, void>
+
+/** A skill or command in the orientation index: its id and its one-line description. */
+interface IndexRow {
+  id: string
+  desc: string
+}
+
+/** One collection in the orientation index. */
+interface CollectionRow extends HarnessCollection {
+  useWhen: string
+  write: string
+}
+
+/** One module in the orientation index, with the skills and commands its sources ship. */
+interface ModuleRow {
+  id: string
+  title: string
+  description: string
+  namespaces: string[]
+  path: string
+  bin: string[]
+  skills: string[]
+  commands: string[]
+}
 export const KNOWN_HARNESSES = ["claude-code", "codex", "pi", "gemini-cli", "cursor"]
 
 export const STAMP =
@@ -61,11 +89,11 @@ export function renderContributions({
   harnesses: string[]
   version?: string
   extensions?: LoadedExtension[]
-}) {
-  const rendered = []
-  const paragraphs = []
+}): { rendered: [id: string, out: HarnessOutput][]; paragraphs: string[] } {
+  const rendered: [id: string, out: HarnessOutput][] = []
+  const paragraphs: string[] = []
   for (const e of extensions) {
-    const where = what => `extension ${e.name}: ${what}`
+    const where = (what: string): string => `extension ${e.name}: ${what}`
     try {
       const p = typeof e.orientation === "function" ? e.orientation({ entries }) : e.orientation
       if (typeof p === "string" && p.trim()) paragraphs.push(p)
@@ -74,7 +102,7 @@ export function renderContributions({
     }
     for (const [id, render] of Object.entries(e.harnesses ?? {})) {
       if (!harnesses.includes(id)) continue
-      let out
+      let out: HarnessOutput
       try {
         out =
           render({
@@ -82,7 +110,7 @@ export function renderContributions({
             version,
             collections: buildCollectionsIndex(entries),
             modules: buildModulesIndex(entries),
-          }) ?? {}
+          }) || {}
       } catch (err) {
         throw new Error(where(`harness "${id}" failed — ${err.message}`))
       }
@@ -115,20 +143,32 @@ export function runHarnessAdapters({
   extensions = [],
   kinds = [],
   contributions = renderContributions({ entries, harnesses, version, extensions }),
-}) {
-  const outputs = []
+}: {
+  root: string
+  entries: Map<string, Entry>
+  harnesses: string[]
+  prevManifest: Manifest | null
+  sourceLayout?: string
+  namespaces?: string[]
+  version?: string
+  workspaceModule?: string
+  extensions?: LoadedExtension[]
+  kinds?: string[]
+  contributions?: ReturnType<typeof renderContributions>
+}): { outputs: string[]; blocks: string[]; summary: string[] } {
+  const outputs: string[] = []
   // ⚠ SEPARATE from `outputs`: these are USER-OWNED root files carrying a managed block, and the
   // prune loop below DELETES anything in a previous manifest's `adapter-outputs` that this compile
   // did not produce — listing CLAUDE.md there would delete the operator's own instructions the day
   // a harness is switched off. They are reported in the manifest and never pruned.
-  const blocks = []
-  const summary = []
-  const rel = p => path.relative(root, p)
-  const block = (file, content) => {
+  const blocks: string[] = []
+  const summary: string[] = []
+  const rel = (p: string) => path.relative(root, p)
+  const block = (file: string, content: string | null): void => {
     writeBlock(root, file, content)
     if (content != null) blocks.push(file)
   }
-  const write = (out, bytes) => {
+  const write = (out: string, bytes: Buffer | string): void => {
     const dest = path.join(root, out)
     fs.mkdirSync(path.dirname(dest), { recursive: true })
     fs.writeFileSync(dest, bytes)
@@ -142,13 +182,13 @@ export function runHarnessAdapters({
     if (!known.includes(h))
       console.warn(`⚠ unknown harness "${h}" in dreamteamer.harnesses — skipped (known: ${known.join(", ")})`)
   }
-  const on = h => harnesses.includes(h)
+  const on = (h: string): boolean => harnesses.includes(h)
   const skillsIndex = buildSkillsIndex(entries)
   // what every orientation block carries beyond the schema: the source kinds extensions add, and the
   // one paragraph each may contribute about itself
   const verbs = new Map(extensions.map(e => [e.name.replace(/^@[^/]+\//, ""), Object.keys(e.commands ?? {}).sort()]))
   const extra = { kinds, paragraphs: contributions.paragraphs, verbs }
-  const orient = flavor =>
+  const orient = (flavor: string): string =>
     orientationBlock(flavor, skillsIndex, sourceLayout, namespaces, version, entries, workspaceModule, extra)
 
   // ---- claude-code: native skills/agents/commands dirs + CLAUDE.md block ----------
@@ -177,7 +217,7 @@ export function runHarnessAdapters({
     summary.push(`claude-code → .claude (${n} files)`)
   }
   // the root harness files open with the generated block — the facts first, every rule after
-  const rootBlock = (file, content) => {
+  const rootBlock = (file: string, content: string | null): void => {
     writeBlock(root, file, content, { top: true })
     if (content != null) blocks.push(file)
   }
@@ -222,7 +262,7 @@ export function runHarnessAdapters({
   // tests the string for truthiness below, omitted the part entirely. An empty source means no
   // block, everywhere.
   const instructions = entries.get("instructions.md")?.bytes?.toString("utf8").trimEnd() || null
-  const instructionsBlock = (file, enabled) =>
+  const instructionsBlock = (file: string, enabled: boolean): void =>
     writeBlock(root, file, enabled ? instructions : null, {
       begin: INSTRUCTIONS_BEGIN,
       end: INSTRUCTIONS_END,
@@ -279,8 +319,8 @@ export function runHarnessAdapters({
 
 // skill id → description one-liners from each SKILL.md's frontmatter; the orientation
 // block carries this index so harnesses without native skill discovery still get triggers.
-function buildSkillsIndex(entries) {
-  const index = []
+function buildSkillsIndex(entries: Map<string, Entry>): IndexRow[] {
+  const index: IndexRow[] = []
   for (const [rt, e] of entries) {
     const m = /^skills\/([^/]+)\/SKILL\.md$/.exec(rt)
     if (!m) continue
@@ -297,7 +337,7 @@ function buildSkillsIndex(entries) {
 }
 
 /** One flattened line of prose from a possibly-folded YAML scalar. */
-const flat = s =>
+const flat = (s: unknown): string =>
   String(s ?? "")
     .replace(/\s+/g, " ")
     .trim()
@@ -305,8 +345,8 @@ const flat = s =>
 /** collection name -> description / use_when / whether it is a schema-ops collection, read from the
  *  compiled descriptor BYTES compile already holds. Same pattern as buildSkillsIndex: no filesystem
  *  read, and deliberately nothing that touches `data/` — see collectionsSection for why. */
-function buildCollectionsIndex(entries) {
-  const index = []
+function buildCollectionsIndex(entries: Map<string, Entry>): CollectionRow[] {
+  const index: CollectionRow[] = []
   for (const [rt, e] of entries) {
     const m = /^collections\/(.+)\.collection\.yaml$/.exec(rt)
     if (!m) continue
@@ -351,9 +391,9 @@ function buildCollectionsIndex(entries) {
  *  first `dt add`, which the store refused on a 100-value enum and a required field the block never
  *  showed; the descriptor stays the authority, this is the line that keeps the first write from
  *  bouncing. Empty string when there is nothing that refuses. */
-function writeLine(d) {
+function writeLine(d: any): string {
   const props = fieldsOf(d)
-  const inputs = []
+  const inputs = ([] as unknown[])
     .concat(idsOf(d).from ?? [])
     .map(t => new Set([...String(t).matchAll(/\{\{\s*([^\s|}]+)/g)].map(m => m[1])))
   const idInputs = inputs.length ? [...inputs[0]].filter(f => inputs.every(s => s.has(f))) : []
@@ -379,8 +419,8 @@ function writeLine(d) {
  *  SOURCE lives under that path — read from the module records compile projected, never from
  *  package.json again. A skill or command belongs to the module with the longest source-path prefix;
  *  the root layout (`path: .`) is the empty prefix and so matches last. */
-function buildModulesIndex(entries) {
-  const mods = []
+function buildModulesIndex(entries: Map<string, Entry>): ModuleRow[] {
+  const mods: ModuleRow[] = []
   for (const [rt, e] of entries) {
     const m = /^modules\/(.+)\.module\.yaml$/.exec(rt)
     if (!m) continue
@@ -428,8 +468,8 @@ function buildModulesIndex(entries) {
  *  into `.claude/commands` and its harness injects name+description at session start, so an index in
  *  CLAUDE.md would be a second copy of what is already there. codex/pi/gemini-cli/cursor got one
  *  pointer line and nothing else — which is why this is conditional, like the skills index. */
-function buildCommandsIndex(entries) {
-  const index = []
+function buildCommandsIndex(entries: Map<string, Entry>): IndexRow[] {
+  const index: IndexRow[] = []
   for (const [rt, e] of entries) {
     const m = /^commands\/(.+)\.command\.md$/.exec(rt)
     if (!m) continue
@@ -465,7 +505,12 @@ function buildCommandsIndex(entries) {
  *  had already been through. A module whose every collection is system-stored (the engine) is not a
  *  domain and gets no group; a module shipping only skills, commands, a bin or extension verbs is one
  *  and does. */
-function collectionsSection(index, modules, workspaceModule, verbs) {
+function collectionsSection(
+  index: CollectionRow[],
+  modules: ModuleRow[],
+  workspaceModule: string,
+  verbs: Map<string, string[]> | undefined
+): string[] {
   if (!index.length) return []
   const lines = [
     "",
@@ -496,7 +541,7 @@ function collectionsSection(index, modules, workspaceModule, verbs) {
       if (c.useWhen) lines.push(`    use when: ${c.useWhen}`)
     }
   }
-  const isWs = m => m.path === `modules/${workspaceModule}/`
+  const isWs = (m: ModuleRow): boolean => m.path === `modules/${workspaceModule}/`
   const groups = modules
     .filter(m => {
       const own = index.filter(c => c.module === m.id)
@@ -544,8 +589,8 @@ function collectionsSection(index, modules, workspaceModule, verbs) {
  *  deliberately triplicated (`provenance`, `crm-provenance`, `rnd-provenance`) so each module stays
  *  copyable on its own. A workspace without them would have been handed a block that lies. Core
  *  renders the line; the module owns the sentence. */
-function templatesSection(entries) {
-  const rows = []
+function templatesSection(entries: Map<string, Entry>): string[] {
+  const rows: { name: string; description: string }[] = []
   for (const [rt, e] of entries) {
     const m = /^mixins\/(.+)\.mixin\.yaml$/.exec(rt)
     if (!m) continue
@@ -573,28 +618,29 @@ function templatesSection(entries) {
  *    {status: {_in: [enriched, x]}}  -> status in enriched|x
  *    {file: {_nempty: true}}         -> file set
  *    {meeting: {_empty: true}}       -> meeting empty */
-const GATE_OPS = {
+const GATE_OPS: Record<string, (p: string, v: unknown) => string> = {
   _eq: (p, v) => `${p}=${v}`,
-  _in: (p, v) => `${p} in ${[].concat(v).join("|")}`,
+  _in: (p, v) => `${p} in ${([] as unknown[]).concat(v).join("|")}`,
   _nempty: p => `${p} set`,
   _empty: p => `${p} empty`,
 }
 
-function renderGate(label, filter) {
+function renderGate(label: string, filter: unknown): string {
   const parts = gateParts(filter)
   return parts.length ? `${label}: ${parts.join(", ")}` : ""
 }
 
 /** A filter's conditions as literal strings: `_and` contributes each of its conditions, `_or` one
  *  `(a or b)` term. */
-function gateParts(filter) {
-  const parts = []
-  const walkFilter = (obj, at) => {
+function gateParts(filter: unknown): string[] {
+  const parts: string[] = []
+  const walkFilter = (obj: unknown, at: string): void => {
     for (const [k, v] of Object.entries(obj ?? {})) {
       if (k === "_and" && Array.isArray(v)) for (const c of v) walkFilter(c, at)
       else if (k === "_or" && Array.isArray(v))
         parts.push(`(${v.map(c => gateParts(at ? { [at]: c } : c).join(", ")).join(" or ")})`)
-      else if (k.startsWith("_")) parts.push((GATE_OPS[k] ?? ((p, x) => `${p} ${k.slice(1)} ${x}`))(at, v))
+      else if (k.startsWith("_"))
+        parts.push((GATE_OPS[k] ?? ((p: string, x: unknown) => `${p} ${k.slice(1)} ${x}`))(at, v))
       else if (v && typeof v === "object") walkFilter(v, at ? `${at}.${k}` : k)
       else parts.push(`${at ? `${at}.` : ""}${k}=${v}`)
     }
@@ -609,8 +655,8 @@ function gateParts(filter) {
  *  absence is on disk: a contact record in the dogfood vault carries the hand-written sentence
  *  "`status: draft` keeps this in the /scrape-contact queue" — an agent re-deriving an available_when
  *  filter into prose because nothing surfaced it. */
-function bindingsSection(entries) {
-  const byCollection = new Map()
+function bindingsSection(entries: Map<string, Entry>): string[] {
+  const byCollection = new Map<string, string[]>()
   for (const [rt, e] of entries) {
     if (!/^command-bindings\/.+\.command-binding\.yaml$/.test(rt)) continue
     let d: any = {}
@@ -647,12 +693,12 @@ function bindingsSection(entries) {
  *  exist. Naming the declared list is what makes the grammar decidable from this block alone, without
  *  the agent having to go read the manifest. A workspace with no namespaces gets no extra sentence. */
 function orientationBlock(
-  flavor,
-  skillsIndex,
+  flavor: string,
+  skillsIndex: IndexRow[],
   sourceLayout = "flat",
-  namespaces = [],
+  namespaces: string[] = [],
   version = "unknown",
-  entries = new Map(),
+  entries: Map<string, Entry> = new Map(),
   workspaceModule = "",
   extra: { kinds: string[]; paragraphs: string[]; verbs?: Map<string, string[]> } = { kinds: [], paragraphs: [] }
 ) {
@@ -747,7 +793,7 @@ function writeBlock(
   // content carries any of them is silently rewritten on the way in, and `$'…'` is ordinary bash in
   // a file about shell commands. Measured: `use $'\n'` rendered as `use ` + the entire preamble.
   // A function replacement is taken literally, which is what "verbatim" has to mean.
-  const insert = replacement => () => replacement
+  const insert = (replacement: string) => () => replacement
   let text = exists ? fs.readFileSync(file, "utf8") : ""
   if (top) {
     if (text.includes(begin))
@@ -775,14 +821,14 @@ function writeBlock(
   fs.writeFileSync(file, text)
 }
 
-export function stampMd(bytes) {
+export function stampMd(bytes: Buffer): Buffer {
   const text = bytes.toString("utf8")
   return text.includes(STAMP) ? bytes : Buffer.from(text.trimEnd() + "\n\n" + STAMP + "\n")
 }
 
 // dreamteamer agent record -> claude-code subagent: `skills` is not a harness
 // frontmatter key; translate it into a binding instruction in the body.
-export function transformAgent(bytes) {
+export function transformAgent(bytes: Buffer): Buffer {
   const text = bytes.toString("utf8")
   const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text)
   if (!m) return bytes
@@ -791,18 +837,18 @@ export function transformAgent(bytes) {
   const skills = doc.skills ?? []
   delete doc.skills
   const skillLine = skills.length
-    ? `ALWAYS load these skills (Skill tool) before acting: ${skills.map(s => String(s).replace(/^skills\//, "")).join(", ")}.\n\n`
+    ? `ALWAYS load these skills (Skill tool) before acting: ${skills.map((s: unknown) => String(s).replace(/^skills\//, "")).join(", ")}.\n\n`
     : ""
   return Buffer.from(`---\n${dump(doc)}---\n\n${skillLine}${body.trimStart()}`)
 }
 
-function escapeRe(s) {
+function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
 // depth-first removal of empty directories; returns true when `dir` itself was removed.
 // dotfile-only dirs count as non-empty (never delete something we can't see into).
-function pruneEmptyDirs(dir) {
+function pruneEmptyDirs(dir: string): boolean {
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return false
   for (const name of fs.readdirSync(dir)) {
     // ⚠ a LIVE linked worktree may sit at `.claude/worktrees/<name>` — a harness can park one
@@ -819,7 +865,7 @@ function pruneEmptyDirs(dir) {
   return false
 }
 
-function* walk(dir) {
+function* walk(dir: string): Generator<string> {
   for (const name of fs.readdirSync(dir).sort()) {
     if (name.startsWith(".")) continue
     const p = path.join(dir, name)

@@ -18,7 +18,13 @@ import { loadDescriptors } from "./runtime.ts"
 import { moduleOf, overlaidByOf } from "./descriptor.ts"
 import { findWorkspace } from "./workspace.ts"
 import { parseNavDoc, readNavDoc, writeNavDoc, placedNames, mergeFragment, NavDocError, NAV_FILE } from "./nav.ts"
-import type { FoundWorkspace, NavDoc } from "./record-types.ts"
+import type { FoundWorkspace, NavDoc, NavEntry, WorkspacePkg } from "./record-types.ts"
+import type { DiscoveredModule } from "./workspace-types.ts"
+
+/** A discovered module with the package.json it ships ({} when that does not read). */
+interface ModuleWithManifest extends DiscoveredModule {
+  manifest: WorkspacePkg
+}
 
 export const NAV_SETTINGS_LINE = "nav: settings found, migrated on the next open of the editor or dt web"
 export const NAV_GUARD_LINE =
@@ -26,7 +32,7 @@ export const NAV_GUARD_LINE =
 const NAV_KEYS = ["dreamteamer.navGroups", "dreamteamer.navOrder", "dreamteamer.navHidden"]
 
 export class NavFragmentRefusal extends Error {
-  constructor(message) {
+  constructor(message: string) {
     super(message)
     this.name = "NavFragmentRefusal"
   }
@@ -34,8 +40,8 @@ export class NavFragmentRefusal extends Error {
 
 /** JSON with comments and trailing commas (what VS Code writes) as plain JSON text. Strings are kept
  *  whole: a `//` or a `,]` inside one is data. */
-function stripJsonc(text) {
-  const scan = (src, step) => {
+function stripJsonc(text: string): string {
+  const scan = (src: string, step: (src: string, i: number) => { text: string; at: number }): string => {
     let out = ""
     for (let i = 0; i < src.length; i++) {
       if (src[i] === '"') {
@@ -51,7 +57,7 @@ function stripJsonc(text) {
     }
     return out
   }
-  const noComments = scan(text, (src, i) => {
+  const noComments = scan(text, (src: string, i: number) => {
     if (src[i] === "/" && src[i + 1] === "/") {
       let j = i
       while (j < src.length && src[j] !== "\n") j++
@@ -63,7 +69,7 @@ function stripJsonc(text) {
     }
     return { text: src[i], at: i }
   })
-  return scan(noComments, (src, i) =>
+  return scan(noComments, (src: string, i: number) =>
     src[i] === "," && /^\s*[}\]]/.test(src.slice(i + 1)) ? { text: "", at: i } : { text: src[i], at: i }
   )
 }
@@ -71,7 +77,7 @@ function stripJsonc(text) {
 /** The old nav settings this workspace still sets — the names among navGroups, navOrder and navHidden
  *  whose value is a non-empty list or map — or null. An absent or unparseable file is null;
  *  `layersFolder` is never one of them. */
-export function navSettings(root) {
+export function navSettings(root: string): string[] | null {
   let settings
   try {
     settings = JSON.parse(stripJsonc(fs.readFileSync(path.join(root, ".vscode", "settings.json"), "utf8")))
@@ -88,7 +94,7 @@ export function navSettings(root) {
 }
 
 /** The refusal install and update print before npm, or null: nav.yaml absent and old nav settings set. */
-export function navGuard(root) {
+export function navGuard(root: string): string | null {
   if (fs.existsSync(path.join(root, NAV_FILE))) return null
   return navSettings(root) ? NAV_GUARD_LINE : null
 }
@@ -98,7 +104,7 @@ export function navGuard(root) {
  * Asked only when a package of the call ships a fragment (`shipsFragment`): a call that ships none merges
  * nothing and never reads the file, so a malformed nav.yaml blocks only the installs that would merge into it.
  */
-export function navDocGuard(root) {
+export function navDocGuard(root: string): string | null {
   try {
     readNavDoc(root)
     return null
@@ -109,9 +115,10 @@ export function navDocGuard(root) {
 }
 
 /** Whether any package of a resolved list ships a nav fragment (`dreamteamer.nav`). */
-export const shipsFragment = list => list.some(e => e.manifest?.dreamteamer?.nav)
+export const shipsFragment = (list: { manifest?: WorkspacePkg | null }[]): boolean =>
+  list.some(e => !!e.manifest?.dreamteamer?.nav)
 
-const readPkg = dir => {
+const readPkg = (dir: string): WorkspacePkg | null => {
   try {
     return JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"))
   } catch {
@@ -130,12 +137,12 @@ export function planNavFragments(
   { names, ignoreSettings = false }: { names?: string[]; ignoreSettings?: boolean } = {}
 ): { doc: NavDoc | null; placed: string[]; changed: boolean; skipped?: "settings" } {
   const { modules } = discoverModules(ws.root, ws.pkg)
-  const byName = new Map()
+  const byName = new Map<string, ModuleWithManifest>()
   for (const m of modules) byName.set(m.name, { ...m, manifest: readPkg(m.root) ?? {} })
   const byId = new Map([...byName.values()].map(m => [moduleIdOf(m.name), m.name]))
 
   // a preset's reach: its members, flattened through nested presets (a seen-set stops a ring)
-  const membersOf = (name, seen = new Set()) => {
+  const membersOf = (name: string, seen = new Set<string>()): string[] => {
     if (seen.has(name)) return []
     seen.add(name)
     const preset = byName.get(name)?.manifest?.dreamteamer?.preset
@@ -144,11 +151,11 @@ export function planNavFragments(
   }
 
   const wanted = (names ?? [...byName.keys()]).filter(n => byName.get(n)?.manifest?.dreamteamer?.nav)
-  const isPreset = n => !!byName.get(n).manifest.dreamteamer.preset
+  const isPreset = (n: string): boolean => !!byName.get(n).manifest.dreamteamer.preset
   const ordered = [...wanted.filter(isPreset), ...wanted.filter(n => !isPreset(n))]
 
   const descriptors = loadDescriptors(ws.root) ?? new Map()
-  const kept = []
+  const kept: NavDoc[] = []
   for (const pkgName of ordered) {
     const m = byName.get(pkgName)
     const reach = isPreset(pkgName) ? membersOf(pkgName) : [pkgName]
@@ -163,8 +170,8 @@ export function planNavFragments(
         `nav.yaml of ${pkgName}: ${m.manifest.dreamteamer.nav} could not be read — ${e.code === "ENOENT" ? "the package does not ship it" : e.message}`
       )
     }
-    const judge = items => {
-      const out = []
+    const judge = (items: unknown): NavEntry[] => {
+      const out: NavEntry[] = []
       for (const e of Array.isArray(items) ? items : []) {
         const c = typeof e === "string" ? e : e && typeof e.collection === "string" ? e.collection : null
         if (c !== null) {

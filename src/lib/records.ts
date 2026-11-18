@@ -4,6 +4,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { load } from "./yaml.ts"
 import { storageOf, storedFieldsOf, isBinary } from "./descriptor.ts"
+import type { ErrorObject } from "ajv"
 import type { Descriptor, Fields } from "./record-types.ts"
 
 export function parseRecord(file: string, d: Descriptor, bodyField?: string | null): Fields {
@@ -31,7 +32,7 @@ export function parseRecordText(text: string, d: Descriptor, bodyField?: string 
 }
 
 // id patterns may use unicode property escapes — compile with the u flag
-export function patternRe(pattern) {
+export function patternRe(pattern: string): RegExp {
   try {
     return new RegExp(pattern, "u")
   } catch {
@@ -40,15 +41,17 @@ export function patternRe(pattern) {
 }
 
 // ajv errors, humanized: echo the offending value (the one datum the reader needs)
-export function fmtAjvError(e, fields) {
+export function fmtAjvError(e: ErrorObject, fields: Fields): string {
   const fieldPath = e.instancePath.slice(1).replace(/\//g, ".")
-  const value = fieldPath ? fieldPath.split(".").reduce((v, k) => v?.[k], fields) : undefined
+  const value = fieldPath
+    ? fieldPath.split(".").reduce<unknown>((v, k) => (v as Fields | undefined)?.[k], fields)
+    : undefined
   if (e.keyword === "enum") return `field ${fieldPath}: "${value}" not in enum [${e.params.allowedValues.join(", ")}]`
   return `field ${fieldPath || "(root)"}: ${JSON.stringify(value) ?? ""} ${e.message}`.trim()
 }
 
 // keys a record carries that its collection does not store (typo detector)
-export function unknownFields(d, fields) {
+export function unknownFields(d: Descriptor, fields: Fields): string[] {
   if (isBinary(d)) return [] // a file record's fields are read from the file, never authored
   const props = storedFieldsOf(d)
   if (!Object.keys(props).length) return []
@@ -93,7 +96,7 @@ const JUNK_FILE = /\.(pyc|pyo)$|^\.DS_Store$/
 
 // THE collection walk — junk-excluding everywhere (store/check used to see .pyc files
 // compile deliberately skipped; one walk, one verdict).
-export function* walk(dir) {
+export function* walk(dir: string): Generator<string> {
   for (const name of fs.readdirSync(dir).sort()) {
     if (name.startsWith(".") || JUNK_DIRS.has(name)) continue
     if (JUNK_FILE.test(name)) continue
@@ -106,7 +109,7 @@ export function* walk(dir) {
 // ids are PATHS — but only downward ones. traversal segments, absolute paths and
 // backslashes are rejected before any fs join (review finding 1: an escaping --id
 // wrote a record outside the repo and orphaned others inside it).
-export function assertSafeId(id) {
+export function assertSafeId(id: unknown): asserts id is string {
   if (typeof id !== "string" || id === "") throw new Error(`invalid id "${id}" — nothing was written.`)
   if (id.startsWith("/") || id.includes("\\") || id.split("/").some(s => s === "" || s === "." || s === "..")) {
     throw new Error(

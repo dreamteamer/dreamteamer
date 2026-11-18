@@ -41,8 +41,10 @@ import type {
   DeclaredExtension,
   EngineApi,
   LoadedExtension,
+  SourceKind,
   Workspace,
 } from "./workspace-types.ts"
+import type { WorkspacePkg } from "./record-types.ts"
 
 /** The keys a package.json `dreamteamer` block may carry — the workspace's and a module's alike. */
 export const MANIFEST_KEYS = [
@@ -81,15 +83,15 @@ export const CONVERTER = "node node_modules/dreamteamer/scripts/migrate-descript
  * a v1 `disable` names its module in a spelling this engine does not honour, and the module it meant
  * to switch off would otherwise load and fail first.
  */
-export function v1ManifestRefusal(block, where) {
+export function v1ManifestRefusal(block: Record<string, any> | null | undefined, where: string): string | null {
   const keys = Object.keys(block ?? {}).filter(
     k => k === "peerDependencies" || (k.includes("-") && MANIFEST_KEYS.includes(k.replace(/-/g, "_")))
   )
   const bare = (Array.isArray(block?.disable) ? block.disable : []).filter(
-    d => typeof d === "string" && !d.includes("/")
+    (d: unknown) => typeof d === "string" && !d.includes("/")
   )
   if (!keys.length && !bare.length) return null
-  const what = [...keys, ...bare.map(d => `disable "${d}"`)].join(", ")
+  const what = [...keys, ...bare.map((d: string) => `disable "${d}"`)].join(", ")
   return `${where}: the dreamteamer block is in the v1 spelling (${what}).\n  convert the workspace once: ${CONVERTER}\n  then dt compile and dt check — UPDATING.md has the walk.`
 }
 
@@ -99,7 +101,10 @@ export const EXTENSION_API = 1 as const
  *  engine never under `dependencies` — npm nests a second engine there whenever the pin differs from the
  *  workspace's, and a module reaching that copy disagrees with the engine the operator ran (D66).
  *  `devDependencies` (a module's own tests) and `peerDependencies` are the two places it belongs. */
-export function manifestViolations(pkg, file) {
+export function manifestViolations(
+  pkg: WorkspacePkg | null | undefined,
+  file: string
+): { file: string; message: string }[] {
   if (pkg?.dependencies && typeof pkg.dependencies === "object" && "dreamteamer" in pkg.dependencies) {
     return [
       {
@@ -133,8 +138,8 @@ const CONTRIBUTION_KEYS = new Set([
 export function declaredExtensions(ws: Workspace): DeclaredExtension[] {
   const disable = ws.pkg?.dreamteamer?.disable ?? []
   const out: DeclaredExtension[] = []
-  const seen = new Set()
-  const consider = (dir, fallback) => {
+  const seen = new Set<string>()
+  const consider = (dir: string, fallback: string): void => {
     let pkg
     try {
       pkg = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"))
@@ -164,14 +169,14 @@ export function declaredExtensions(ws: Workspace): DeclaredExtension[] {
       vars: pkg.dreamteamer.vars ?? [],
     })
   }
-  let inline = []
+  let inline: string[] = []
   try {
     inline = fs.readdirSync(path.join(ws.root, "modules")).sort()
   } catch {
     /* no modules/ */
   }
   for (const id of inline) consider(path.join(ws.root, "modules", id), id)
-  const listed = dir => {
+  const listed = (dir: string): string[] => {
     try {
       return fs.readdirSync(dir).sort()
     } catch {
@@ -207,14 +212,14 @@ export function declaredExtensions(ws: Workspace): DeclaredExtension[] {
  * bare id was compared against the full name — so neither spelling could disable a scoped package.
  * Every extension this project ships is scoped.
  */
-export function disablesPackage(disable, name) {
+export function disablesPackage(disable: unknown[] | null | undefined, name: string): boolean {
   const id = String(name).replace(/^@[^/]+\//, "")
   return (disable ?? []).some(d => isPackageEntry(d) && [name, id].includes(d.slice("modules/".length)))
 }
 
 /** Is a `dreamteamer.disable` entry a whole module — `modules/<id or package name>` — rather than an
  *  entity, `<kind>/<id>`? The record grammar either way: a module is a record of `modules`. */
-export const isPackageEntry = d => typeof d === "string" && d.startsWith("modules/")
+export const isPackageEntry = (d: unknown): d is string => typeof d === "string" && d.startsWith("modules/")
 
 /**
  * Import and activate every declared extension against `api`, and check the contributions cannot
@@ -229,11 +234,16 @@ export async function loadExtensions(
   const v1 = v1ManifestRefusal(ws.pkg?.dreamteamer, "package.json")
   if (v1) throw new Error(v1)
   const loaded: LoadedExtension[] = []
-  const owner = { command: new Map(), kind: new Map(), harness: new Map(), unit: new Map() }
+  const owner = {
+    command: new Map<string, string>(),
+    kind: new Map<string, string>(),
+    harness: new Map<string, string>(),
+    unit: new Map<string, string>(),
+  }
   for (const r of reserved.verbs ?? []) owner.command.set(r, "the engine")
   for (const r of reserved.kinds ?? []) owner.kind.set(r, "the engine")
   for (const r of reserved.harnesses ?? []) owner.harness.set(r, "the engine")
-  const claim = (what, key, by) => {
+  const claim = (what: keyof typeof owner, key: string, by: string): void => {
     const prev = owner[what].get(key)
     if (prev)
       throw new Error(
@@ -274,7 +284,7 @@ export async function loadExtensions(
     const sourceKinds = (c.sourceKinds ?? []).map(k => normalizeKind(ext.name, k))
     for (const k of sourceKinds) claim("kind", k.kind, ext.name)
     for (const id of Object.keys(c.harnesses ?? {})) claim("harness", id, ext.name)
-    for (const fn of ["analyze", "check", "doctor", "next"])
+    for (const fn of ["analyze", "check", "doctor", "next"] as const)
       if (c[fn] !== undefined && typeof c[fn] !== "function")
         throw new Error(`extension ${ext.name}: ${fn} must be a function`)
     // setup units: validated here so an uncompilable declaration never reaches `dt install`; a unit id is
@@ -346,21 +356,23 @@ export function contributedNotes(ws: Workspace, collection: string, ids: string[
 }
 
 /** A contributed source kind: a plain folder name, and excluded subtrees that stay RELATIVE to it. */
-function normalizeKind(by, k) {
-  const kind = typeof k === "string" ? k : k?.kind
+function normalizeKind(by: string, k: unknown): SourceKind {
+  const kind = typeof k === "string" ? k : (k as { kind?: unknown } | null)?.kind
   if (typeof kind !== "string" || !/^[a-z][a-z0-9-]*$/.test(kind))
     throw new Error(`extension ${by}: a source kind is a lowercase folder name (got ${JSON.stringify(kind)})`)
-  const exclude = (typeof k === "object" ? (k.exclude ?? []) : []).map(e => {
-    const rel = path.posix.normalize(String(e)).replace(/\/+$/, "")
-    if (!rel || rel === "." || rel.startsWith("..") || path.posix.isAbsolute(rel))
-      throw new Error(`extension ${by}: kind "${kind}" excludes "${e}", which is not a subtree of it`)
-    return rel
-  })
+  const exclude = ((typeof k === "object" && k ? ((k as { exclude?: unknown[] }).exclude ?? []) : []) as unknown[]).map(
+    e => {
+      const rel = path.posix.normalize(String(e)).replace(/\/+$/, "")
+      if (!rel || rel === "." || rel.startsWith("..") || path.posix.isAbsolute(rel))
+        throw new Error(`extension ${by}: kind "${kind}" excludes "${e}", which is not a subtree of it`)
+      return rel
+    }
+  )
   return { kind, exclude, extension: by }
 }
 
 /** Is `relFromKind` (a '/'-separated path under the kind folder) inside one of its excluded subtrees? */
-export function excludedFromKind(kinds, kind, relFromKind) {
+export function excludedFromKind(kinds: SourceKind[], kind: string, relFromKind: string): boolean {
   const k = kinds.find(x => x.kind === kind)
   return !!k && k.exclude.some(e => relFromKind === e || relFromKind.startsWith(`${e}/`))
 }

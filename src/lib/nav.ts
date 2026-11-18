@@ -22,15 +22,19 @@ export const NAV_FILE = "nav.yaml"
 const HEADER = "# The left nav of this workspace. Drag and drop writes this file; so may you."
 
 export class NavDocError extends Error {
-  constructor(message) {
+  constructor(message: string) {
     super(message)
     this.name = "NavDocError"
   }
 }
 
-const isObject = v => v !== null && typeof v === "object" && !Array.isArray(v)
+/** A tree entry as read from nav.yaml — any shape, since `check` reports the malformed ones rather than refusing them. */
+type RawEntry = any
+type EntryKind = "collection" | "folder" | "namespace"
+
+const isObject = (v: unknown): v is Record<string, any> => v !== null && typeof v === "object" && !Array.isArray(v)
 /** 'collection' · 'folder' · 'namespace', or null for an entry of none of the four shapes. */
-const kindOf = e =>
+const kindOf = (e: RawEntry): EntryKind | null =>
   typeof e === "string" || typeof e?.collection === "string"
     ? "collection"
     : typeof e?.folder === "string"
@@ -38,10 +42,10 @@ const kindOf = e =>
       : typeof e?.namespace === "string"
         ? "namespace"
         : null
-const nameOf = e => (typeof e === "string" ? e : e.collection)
+const nameOf = (e: RawEntry): string => (typeof e === "string" ? e : e.collection)
 
 /** Every entry of a tree level and the levels inside it, depth first, with its kind. */
-function eachEntry(items, visit) {
+function eachEntry(items: unknown, visit: (e: RawEntry, kind: EntryKind | null) => void): void {
   if (!Array.isArray(items)) return
   for (const e of items) {
     const kind = kindOf(e)
@@ -98,10 +102,10 @@ export function validateNavDoc(
 ): { warning: string }[] {
   const declared = new Set(namespaces)
   const warnings: { warning: string }[] = []
-  const warn = warning => warnings.push({ warning })
-  const seen = new Set()
-  const twice = new Set()
-  const count = name => {
+  const warn = (warning: string) => warnings.push({ warning })
+  const seen = new Set<string>()
+  const twice = new Set<string>()
+  const count = (name: string): void => {
     if (seen.has(name) && !twice.has(name)) {
       twice.add(name)
       warn(`"${name}" is listed twice — it draws at its first place`)
@@ -132,8 +136,8 @@ export function validateNavDoc(
 }
 
 /** The names of one kind of entry in the tree, at any depth, plus every hidden name. */
-function namesIn(doc, wanted) {
-  const out = new Set()
+function namesIn(doc: NavDoc, wanted: EntryKind): Set<string> {
+  const out = new Set<string>()
   eachEntry(doc.tree, (e, kind) => {
     if (kind === wanted) out.add(kind === "collection" ? nameOf(e) : e.namespace)
   })
@@ -143,7 +147,7 @@ function namesIn(doc, wanted) {
 
 /** Every collection the document places: named in the tree at any depth, or hidden. A namespace entry
  *  places nothing by itself (design §3 rule 3) — its collections are placed only by name. */
-export const placedNames = doc => namesIn(doc, "collection")
+export const placedNames = (doc: NavDoc): Set<string> => namesIn(doc, "collection")
 
 /**
  * A module's fragment merged into the document: it only ever ADDS what the document does not place yet,
@@ -157,18 +161,22 @@ export const placedNames = doc => namesIn(doc, "collection")
  * the document names that namespace nowhere — into a new entry; named at another level, nothing is
  * created and its rows stay unplaced (the drawing puts them inside that namespace's folder).
  */
-export function mergeFragment(doc, fragment, { placed = placedNames(doc) } = {}) {
+export function mergeFragment(
+  doc: NavDoc,
+  fragment: { tree?: unknown },
+  { placed = placedNames(doc) }: { placed?: Iterable<string> } = {}
+): { doc: NavDoc; placedNow: string[] } {
   const taken = new Set(placed)
   const named = namesIn(doc, "namespace")
-  const placedNow = []
+  const placedNow: string[] = []
   // one tree level: `level` is copied on its first change, so an untouched level comes back as itself
-  const mergeLevel = (level, items) => {
+  const mergeLevel = (level: RawEntry[], items: unknown): RawEntry[] => {
     let out = level
     const own = () => {
       if (out === level) out = [...level]
       return out
     }
-    const into = (i, e) => {
+    const into = (i: number, e: RawEntry): void => {
       // merge e's items into out[i]'s
       const current = Array.isArray(out[i].items) ? out[i].items : []
       const merged = mergeLevel(current, e.items)
@@ -209,4 +217,7 @@ export function mergeFragment(doc, fragment, { placed = placedNames(doc) } = {})
   return { doc: merged === doc.tree ? doc : { tree: merged, hidden: [...doc.hidden] }, placedNow }
 }
 
-const decor = e => ({ ...(e.icon != null ? { icon: e.icon } : {}), ...(e.hidden === true ? { hidden: true } : {}) })
+const decor = (e: RawEntry): { icon?: string; hidden?: true } => ({
+  ...(e.icon != null ? { icon: e.icon } : {}),
+  ...(e.hidden === true ? { hidden: true } : {}),
+})

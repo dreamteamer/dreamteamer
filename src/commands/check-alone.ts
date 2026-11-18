@@ -21,7 +21,8 @@ import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import { resolveNpm, childEnv } from "./checkout.ts"
 import { KINDS, kindDir } from "./compile.ts"
-import type { EngineRun, EngineRunOptions, Log } from "../lib/workspace-types.ts"
+import type { EngineRun, EngineRunOptions, Log, Workspace } from "../lib/workspace-types.ts"
+import type { WorkspacePkg } from "../lib/record-types.ts"
 
 const ENGINE = path.resolve(fileURLToPath(import.meta.url), "../../..")
 const IDENTITY = {
@@ -75,10 +76,10 @@ export function freshWorkspace(root: string, engine: string = ENGINE): string {
   return root
 }
 
-const readPkg = dir => JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"))
+const readPkg = (dir: string): WorkspacePkg => JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"))
 
 /** Where this workspace holds a package by name: an inline module whose package.json names it, or node_modules/<name>. */
-function locate(root, name) {
+function locate(root: string, name: string): string | null {
   const inline = path.join(root, "modules")
   if (fs.existsSync(inline))
     for (const d of fs.readdirSync(inline)) {
@@ -94,7 +95,7 @@ function locate(root, name) {
 
 /** Pack `dir` into `dest`; returns the tarball's name and the package-relative paths it ships (null
  *  when npm's --json listing does not parse — the shipped-sources judgement is then skipped). */
-function npmPack(npm, dir, dest) {
+function npmPack(npm: string, dir: string, dest: string): { file: string | undefined; files: string[] | null } {
   const before = new Set(fs.readdirSync(dest))
   const r = spawnSync(npm, ["pack", "--json", "--silent", "--ignore-scripts", "--pack-destination", dest], {
     cwd: dir,
@@ -103,9 +104,9 @@ function npmPack(npm, dir, dest) {
     env: childEnv(),
   })
   if (r.status !== 0) throw new Error(`npm pack failed in ${dir}: ${(r.stderr || r.stdout).trim().split("\n")[0]}`)
-  let files = null
+  let files: string[] | null = null
   try {
-    files = JSON.parse(r.stdout)[0].files.map(f => f.path.split(path.sep).join("/"))
+    files = JSON.parse(r.stdout)[0].files.map((f: { path: string }) => f.path.split(path.sep).join("/"))
   } catch {
     /* an npm without --json for pack */
   }
@@ -113,9 +114,9 @@ function npmPack(npm, dir, dest) {
 }
 
 /** Every file under `rel` in `dir` (dotfiles left out — npm never packs .DS_Store and the like), `/`-joined. */
-function filesUnder(dir, rel) {
-  const out = []
-  const walk = r => {
+function filesUnder(dir: string, rel: string): string[] {
+  const out: string[] = []
+  const walk = (r: string): void => {
     for (const e of fs.readdirSync(path.join(dir, r), { withFileTypes: true })) {
       if (e.name.startsWith(".") || e.name === "node_modules") continue
       const sub = `${r}/${e.name}`
@@ -132,10 +133,14 @@ function filesUnder(dir, rel) {
  * bundle and the nav fragment the manifest names — as `{ missing, folder }`, or null when it all ships.
  * A folder left out of the package's `files` list is not published: a stranger installs a module without it.
  */
-export function unshippedSources(dir, manifest, shipped) {
+export function unshippedSources(
+  dir: string,
+  manifest: WorkspacePkg,
+  shipped: string[] | null
+): { missing: string[]; folder: string } | null {
   if (!shipped) return null
   const has = new Set(shipped)
-  const authored = []
+  const authored: string[] = []
   for (const k of KINDS)
     authored.push(...filesUnder(dir, path.relative(dir, kindDir(dir, k)).split(path.sep).join("/")))
   for (const ui of ["ui", "studio"]) authored.push(...filesUnder(dir, ui))
@@ -145,12 +150,12 @@ export function unshippedSources(dir, manifest, shipped) {
   const missing = authored.filter(f => !has.has(f))
   return missing.length ? { missing, folder: missing[0].split("/")[0] } : null
 }
-const unshippedLine = (name, u) =>
+const unshippedLine = (name: string, u: { missing: string[]; folder: string }): string =>
   `${name} does not ship ${u.missing[0]}${u.missing.length > 1 ? ` (and ${u.missing.length - 1} more)` : ""} — package.json "files" leaves out ${u.folder}, so a stranger's install would have none of it; add "${u.folder}" to "files"`
 
 /** The gate. `target` is the positional (`modules/<id>`); returns the exit code. */
 export function checkAlone(
-  ws,
+  ws: Workspace,
   {
     target,
     keep = false,
@@ -158,7 +163,7 @@ export function checkAlone(
     error = console.error,
   }: { target?: string; keep?: boolean; log?: Log; error?: Log } = {}
 ) {
-  const usage = m => {
+  const usage = (m: string): number => {
     error(`✖ ${m}`)
     return 2
   }
@@ -186,7 +191,7 @@ export function checkAlone(
   }
 
   const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "dt-check-alone-")))
-  const refuse = why => {
+  const refuse = (why: string): number => {
     error(`✖ ${label}: ${why}`)
     if (keep) log(`  kept: ${path.join(tmp, "ws")}`)
     else fs.rmSync(tmp, { recursive: true, force: true })
@@ -202,8 +207,8 @@ export function checkAlone(
     const seen = new Set([pkg.name])
     // a module preset's members are packed like dependencies (CR-dt-008): install walks them at their
     // pins. Each need remembers who listed it and under which key, so a missing one is named rightly.
-    const needs = p => [
-      ...(p.dreamteamer?.dependencies ?? []).map(name => ({ name, by: p.name })),
+    const needs = (p: WorkspacePkg): { name: string; by: string; pin?: unknown }[] => [
+      ...(p.dreamteamer?.dependencies ?? []).map((name: string) => ({ name, by: p.name })),
       ...Object.entries(p.dreamteamer?.preset ?? {}).map(([name, pin]) => ({ name, by: p.name, pin })),
     ]
     const queue = needs(pkg)

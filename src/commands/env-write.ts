@@ -29,8 +29,18 @@ const ASSIGNMENT = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=("(?:[^"\\]|\\.)*"|'
  *  `[start, end)` is the value token's span (an unquoted value without its trailing whitespace, so a
  *  CRLF file keeps its `\r`), `raw` the text there, `value` what parseEnvValues reads, `quoted` the
  *  quote character or false. */
-export function envSpans(text) {
-  const out = []
+/** One `KEY=value` assignment in a .env text: where its value sits, and how it is written. */
+export interface EnvSpan {
+  key: string
+  start: number
+  end: number
+  raw: string
+  value: string
+  quoted: '"' | "'" | false
+}
+
+export function envSpans(text: string): EnvSpan[] {
+  const out: EnvSpan[] = []
   // a leading byte-order mark is not part of the first key: scanned as if absent, offsets kept (it is one
   // UTF-16 unit, replaced by one newline so `^` still matches the first line)
   const body = String(text).replace(/^\uFEFF/, "\n")
@@ -52,7 +62,7 @@ export function envSpans(text) {
 /** The token written for `value`: plain when nothing in it needs quoting (a backslash reads back as
  *  itself unquoted — a Windows path), else double-quoted. Inside double quotes the reader treats `\x` as
  *  one unit, so a backslash there could swallow the closing quote: refused. */
-function token(key, value, preferQuoted) {
+function token(key: string, value: string, preferQuoted: boolean): string {
   const plain = /^[^\s#"']*$/.test(value) && value === value.trim() && !(preferQuoted && !value.includes("\\"))
   if (plain) return value
   if (value.includes("\\"))
@@ -68,11 +78,11 @@ function token(key, value, preferQuoted) {
  * accident, so neither is rewritten) and `value` (a value holding `"` or NUL — the reader does not
  * unescape, so such a value cannot read back as written).
  */
-export function setEnvValues(text, values) {
+export function setEnvValues(text: string, values: Record<string, unknown>): { text: string; changed: string[] } {
   let out = String(text)
   // a byte-order mark stays where it is; envSpans scans past it (the engine's reader of the unit's
   // environment, unitEnv, skips it too — held-out he1)
-  const changed = []
+  const changed: string[] = []
   for (const [key, value] of Object.entries(values)) {
     if (!ENV_KEY.test(key)) throw new EnvRefusal("key", `${key} is not an environment key`)
     if (typeof value !== "string") throw new EnvRefusal("value", `${key}: a value that is not a string`)
@@ -99,7 +109,7 @@ export function setEnvValues(text, values) {
 }
 
 /** `sha256:<hex>` of a regular file, `absent` when there is none; a symlink or a non-file is refused. */
-export function fingerprint(file) {
+export function fingerprint(file: string): string {
   let st
   try {
     st = fs.lstatSync(file)
@@ -116,9 +126,9 @@ export function fingerprint(file) {
   return `sha256:${createHash("sha256").update(fs.readFileSync(file)).digest("hex")}`
 }
 
-const tempPrefix = target => `${path.basename(target)}.setup-`
+const tempPrefix = (target: string): string => `${path.basename(target)}.setup-`
 /** Temporary files an interrupted write of `target` left beside it — a reason to stop and name them. */
-export function leftoverTemps(target) {
+export function leftoverTemps(target: string): string[] {
   try {
     return fs
       .readdirSync(path.dirname(target))
@@ -143,8 +153,8 @@ const GIT_ENV_KEYS = [
   "LC_ALL",
   "XDG_CONFIG_HOME",
 ]
-function git(root, args) {
-  const env = { GIT_TERMINAL_PROMPT: "0" }
+function git(root: string, args: string[]): { status: number | null; stderr: string } {
+  const env: NodeJS.ProcessEnv = { GIT_TERMINAL_PROMPT: "0" }
   for (const k of GIT_ENV_KEYS) if (process.env[k] !== undefined) env[k] = process.env[k]
   const r = spawnSync("git", ["--no-optional-locks", "-c", "core.fsmonitor=false", "-C", root, ...args], {
     env,
@@ -157,7 +167,7 @@ function git(root, args) {
 
 /** Could workspace-relative `rel` end up in a commit? `{ safe }` or `{ safe: false, reason }`: in a
  *  repository git decides (not tracked, and ignored); outside any repository nothing can be committed. */
-export function gitExposure(root, rel) {
+export function gitExposure(root: string, rel: string): { safe: true } | { safe: false; reason: string } {
   const top = git(root, ["rev-parse", "--show-toplevel"])
   if (top.status !== 0) {
     if (top.status === 128 && /not a git repository/i.test(top.stderr)) return { safe: true }
@@ -174,7 +184,7 @@ export function gitExposure(root, rel) {
 }
 
 /** Is any component of `.env` under `root` a symlink, or does the path leave the root? */
-function confinedEnv(root) {
+function confinedEnv(root: string): string {
   const real = fs.realpathSync(root)
   const target = path.join(real, ".env")
   let st = null
@@ -197,7 +207,7 @@ function confinedEnv(root) {
  * process survives; an existing file keeps its mode, a new one is created owner-only. The last check
  * and the rename are two calls, not a compare-and-swap — optimistic, kept as short as it can be.
  */
-export function writeEnvAtomic(root, content, expect) {
+export function writeEnvAtomic(root: string, content: string, expect: string): string {
   const target = confinedEnv(root)
   const stale = () => new EnvRefusal("changed", ".env changed after the preview — nothing was written; plan again")
   if (fingerprint(target) !== expect) throw stale()

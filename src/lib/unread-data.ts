@@ -15,10 +15,11 @@ import { storageOf } from "./descriptor.ts"
 import { defaultStoragePath } from "./namespace.ts"
 import { walk } from "./records.ts"
 import { discoverModules, kindDir } from "../commands/compile.ts"
+import type { Workspace } from "./workspace-types.ts"
 
 /** `<id>.<suffix>.<ext>` — the shape every text record file has (a dotfile never is one). */
 const RECORD_FILE = /^[^.][^/]*\.[A-Za-z][\w-]*\.(md|ya?ml|json)$/
-const subdirs = abs => {
+const subdirs = (abs: string): string[] => {
   try {
     return fs
       .readdirSync(abs, { withFileTypes: true })
@@ -32,9 +33,13 @@ const subdirs = abs => {
 
 /** `[folder, files]` per folder under `dataDir` no claimed path accounts for and holding record files:
  *  a claimed folder is skipped, a prefix of one (a namespace folder) is descended into. `/`-joined. */
-export function unreadRecordFolders(root, dataDir, claimed) {
-  const out = []
-  const visit = rel => {
+export function unreadRecordFolders(
+  root: string,
+  dataDir: string,
+  claimed: Set<string>
+): [folder: string, files: string[]][] {
+  const out: [folder: string, files: string[]][] = []
+  const visit = (rel: string): void => {
     for (const name of subdirs(path.join(root, rel))) {
       const p = `${rel}/${name}`
       if (claimed.has(p)) continue
@@ -55,7 +60,7 @@ export function unreadRecordFolders(root, dataDir, claimed) {
 
 /** The folder each collection of a package in node_modules that this workspace does not compile would
  *  store its records in, as `folder → "<package> defines <collection>"` — where an unread folder's reader is. */
-function definedFolders(ws, dataDir) {
+function definedFolders(ws: Workspace, dataDir: string): Map<string, string> {
   const nm = path.join(ws.root, "node_modules")
   const compiled = new Set(discoverModules(ws.root, ws.pkg).modules.map(m => m.name))
   const at = new Map()
@@ -92,7 +97,7 @@ function definedFolders(ws, dataDir) {
 }
 
 /** The ⚠ lines `dt check` prints, as `{ file, msg, warning: true }` items (src/api.js contributedViolations). */
-export function unreadDataWarnings(ws) {
+export function unreadDataWarnings(ws: Workspace): { file: string; msg: string; warning: true }[] {
   const descriptors = loadDescriptors(ws.root) ?? new Map()
   const dataDir = exportsFacts(ws.root).data
   const roots = [...descriptors.values()]

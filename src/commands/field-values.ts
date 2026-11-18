@@ -52,7 +52,7 @@ export function distinctValues(
     return {
       collection,
       field,
-      values: declared.map(value => ({ value, count: null })),
+      values: declared.map(value => ({ value, count: null as number | null })),
       total: declared.length,
       truncated: false,
       source: "enum",

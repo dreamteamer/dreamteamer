@@ -11,14 +11,14 @@
 // `record_title` (so `{{ doctor }}` reads as the doctor's name). `validateTemplate` is what compile
 // runs on every template it finds, so an unknown filter or a field that does not exist is a compile
 // error naming the position rather than a blank label in a surface.
-import type { TemplatePart } from "./record-types.ts"
+import type { Fields, TemplatePart } from "./record-types.ts"
 
 const SEQ = "__DT_SEQ__"
 
 /** Render ONE template, or throw if a field it names is missing. The list form loops over this. */
 export function generateId(
-  tpl,
-  fields,
+  tpl: string | string[],
+  fields: Fields,
   existingIds: Iterable<string> = [],
   opts: { onFallback?: (fallback: { field: string; value: string; id: string }) => void } = {}
 ) {
@@ -42,9 +42,9 @@ export function generateId(
   let sawSeq = false
   let seqPad = 0
 
-  const rendered = tpl.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, expr) => {
+  const rendered = (tpl as string).replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_: string, expr: string) => {
     const [head, ...filters] = expr.split("|").map(s => s.trim())
-    let value
+    let value: unknown
     // `created` is a stored field the engine stamps at add (descriptor v2), so an id reads it from the
     // record when it is there; with no stamp yet (a dry render) it is now.
     if (head === "created") value = fields.created ?? created
@@ -85,7 +85,7 @@ export function generateId(
 function applyFilter(
   name: string,
   arg: string | undefined,
-  value,
+  value: unknown,
   ctx: { field?: string; onFallback?: (fallback: { field: string; value: string; id: string }) => void } = {}
 ) {
   switch (name) {
@@ -117,15 +117,15 @@ function applyFilter(
   }
 }
 
-const asDate = v => (v instanceof Date ? v : new Date(v))
+const asDate = (v: unknown): Date => (v instanceof Date ? v : new Date(v as string | number))
 
 // `date:HH-mm` on a date-time field is how an id embeds a start time. A date or date-time STRING
 // renders as written, in its own offset (`2026-07-28T23:30:00+03:00` is 23:30 on the 28th on every
 // machine), so an id is the same wherever it is generated. Only `created`/`now` read the machine's
 // zone. Tokens are replaced longest-first so `MM` (month) can't eat the `M` of a minute pattern.
 const WALL_CLOCK = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?/
-function fmtDate(v, fmt) {
-  const pad = n => String(n).padStart(2, "0")
+function fmtDate(v: unknown, fmt: string): string {
+  const pad = (n: number) => String(n).padStart(2, "0")
   const m = typeof v === "string" ? WALL_CLOCK.exec(v) : null
   const d = m ? null : asDate(v)
   const tokens = m
@@ -138,7 +138,7 @@ function fmtDate(v, fmt) {
         mm: pad(d.getMinutes()),
         ss: pad(d.getSeconds()),
       }
-  return fmt.replace(/YYYY|MM|DD|HH|mm|ss/g, t => tokens[t])
+  return fmt.replace(/YYYY|MM|DD|HH|mm|ss/g, t => tokens[t as keyof typeof tokens])
 }
 
 export function slug(s: string): string {

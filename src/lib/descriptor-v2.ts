@@ -28,18 +28,22 @@ export const V2_KEYS = [
 ]
 
 const STORAGE_KEYS = ["path", "format", "shape", "entry", "suffix", "under", "max_bytes", "accept", "owner"]
-const DISPLAY_BLOCKS = {
+const DISPLAY_BLOCKS: Record<string, string[]> = {
   nav: ["icon", "order", "section"],
   list: ["layout", "columns", "sort", "options"],
   record: ["layout", "subtitle", "badge", "color_by", "options"],
   form: ["sections"],
 }
 
-export const isV2 = doc => !!doc && typeof doc === "object" && !Array.isArray(doc) && "fields" in doc
+/** An authored descriptor as parsed from YAML — not yet validated, so every key is open. */
+export type AuthoredDoc = Record<string, any>
+
+export const isV2 = (doc: unknown): doc is AuthoredDoc =>
+  !!doc && typeof doc === "object" && !Array.isArray(doc) && "fields" in doc
 
 /** Shape errors that need no other descriptor: closed keys, v1 keys, storage, id, display layout. */
-export function shapeErrors(doc) {
-  const errors = []
+export function shapeErrors(doc: AuthoredDoc): string[] {
+  const errors: string[] = []
   for (const k of Object.keys(doc)) {
     if (V2_KEYS.includes(k)) continue
     errors.push(`unknown key \`${k}\` — a descriptor's keys are ${V2_KEYS.join(" · ")}`)
@@ -101,14 +105,17 @@ export function shapeErrors(doc) {
  * @param {Map<string, object>} mixins   id → mixin doc
  * @returns {{ doc: object, errors: string[], used: string[] }}
  */
-export function mergeMixins(doc, mixins) {
-  const errors = []
-  const used = []
+export function mergeMixins(
+  doc: AuthoredDoc,
+  mixins: Map<string, AuthoredDoc>
+): { doc: AuthoredDoc; errors: string[]; used: string[] } {
+  const errors: string[] = []
+  const used: string[] = []
   const out = structuredClone(doc)
   const ids = doc.mixins ?? []
   if (!Array.isArray(ids)) return { doc: out, errors: ["`mixins` is a list of mixin ids"], used }
   const owned = new Map(Object.keys(doc.fields ?? {}).map(f => [f, "the descriptor"]))
-  const added = {}
+  const added: Record<string, unknown> = {}
   const constraints = [...(doc.constraints ?? [])]
   for (const id of ids) {
     const m = mixins.get(id)
@@ -150,11 +157,11 @@ export function mergeMixins(doc, mixins) {
  * Field names a descriptor mentions outside `fields` must exist (rule 6). Templates are parsed with
  * the one grammar. Returns errors naming each position.
  */
-export function nameErrors(doc) {
-  const errors = []
+export function nameErrors(doc: AuthoredDoc): string[] {
+  const errors: string[] = []
   const fields = doc.fields ?? {}
   const names = Object.keys(fields)
-  const has = f => f === "id" || f === "created" || f === "last_modified" || names.includes(f)
+  const has = (f: string): boolean => f === "id" || f === "created" || f === "last_modified" || names.includes(f)
   const d = doc.display ?? {}
   for (const c of d.list?.columns ?? [])
     if (!has(c)) errors.push(`display.list.columns names "${c}", which is not a field`)
@@ -206,7 +213,7 @@ export function nameErrors(doc) {
 }
 
 /** A field refined by an overlay: the overlay's keys win, `display` merged key by key. */
-function refineField(f, by) {
+function refineField(f: AuthoredDoc, by: AuthoredDoc): AuthoredDoc {
   const out = { ...f, ...by }
   if (f?.display && by?.display) out.display = { ...f.display, ...by.display }
   return out
@@ -214,15 +221,15 @@ function refineField(f, by) {
 
 /** A base and its overlays as ONE v2 descriptor: overlay fields inserted before the body,
  *  constraints concatenated, every other key overlay-wins key by key (display per sub-block). */
-export function mergeOverlays(base, overlays) {
+export function mergeOverlays(base: AuthoredDoc, overlays: Iterable<AuthoredDoc>): AuthoredDoc {
   const out = structuredClone(base)
   for (const o of overlays) {
     // a field already present — from the base OR an earlier overlay — is refined in place, key by key
     // (its `display` too); a new one goes in before the body field
-    const own = Object.entries(out.fields ?? {}).map(([k, f]) => [
+    const own = Object.entries((out.fields ?? {}) as Record<string, AuthoredDoc>).map(([k, f]) => [
       k,
       k in (o.fields ?? {}) ? refineField(f, o.fields[k]) : f,
-    ])
+    ]) as [string, AuthoredDoc][]
     const bodyAt = own.findIndex(([, f]) => f?.body)
     const add = Object.entries(o.fields ?? {}).filter(([k]) => !(k in (out.fields ?? {})))
     out.fields = Object.fromEntries(

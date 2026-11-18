@@ -21,7 +21,7 @@ export const VIEW_KEYS = ["name", "title", "description", "route", "scope", "col
 export const VIEW_SCOPES = ["record", "collection", "page"]
 /** A view's display: the collection's four sub-blocks, with `nav.title` because a view has no
  *  descriptor title of its own, and `options` on the record page as well as the list. */
-export const VIEW_DISPLAY = {
+export const VIEW_DISPLAY: Record<string, string[]> = {
   nav: ["title", "icon", "order"],
   list: ["layout", "columns", "sort", "options"],
   record: ["layout", "subtitle", "badge", "color_by", "options"],
@@ -44,6 +44,19 @@ const V1_BINDING_KEYS = ["target", "can-enter", "can-exit"]
 const isMap = (v: unknown): v is Record<string, any> => !!v && typeof v === "object" && !Array.isArray(v)
 const BUILTIN_FIELDS = ["id", "created", "last_modified"]
 
+/** A ui-view or command-binding as authored — validated here, so every key is open. */
+type ViewDoc = Record<string, any>
+
+/** What a validator reports: `v1` when the document is in the pre-v2 spelling and was not judged. */
+export interface ViewReport {
+  v1?: true
+  errors: string[]
+  warnings: string[]
+}
+
+/** Field names → their definitions, for the collection a view or binding names. */
+type FieldMap = Record<string, unknown>
+
 /**
  * Validate one ui-view.
  * @param {object} view
@@ -53,13 +66,27 @@ const BUILTIN_FIELDS = ["id", "created", "last_modified"]
  *   lenient — the view's module declares a peer collection that is not installed
  * @returns {{ errors: string[], warnings: string[], v1?: true }} each naming its position
  */
-export function viewErrors(view, { file, fields, groupFields, lenient = false }) {
+export function viewErrors(
+  view: unknown,
+  {
+    file,
+    fields,
+    groupFields,
+    lenient = false,
+  }: {
+    file: string
+    fields?: FieldMap | null
+    /** the fields a `group_by` field's rows carry, for the group templates */
+    groupFields?: (groupBy: unknown) => FieldMap | null | undefined
+    lenient?: boolean
+  }
+): ViewReport {
   if (!isMap(view)) return { errors: [`${file}: a ui-view is a mapping`], warnings: [] }
   if (V1_VIEW_KEYS.some(k => k in view) && !("route" in view || "scope" in view || "display" in view))
     return { v1: true, errors: [], warnings: [] }
-  const errors = []
-  const names = []
-  const at = msg => errors.push(`${file}: ${msg}`)
+  const errors: string[] = []
+  const names: string[] = []
+  const at = (msg: string) => errors.push(`${file}: ${msg}`)
   for (const k of Object.keys(view)) {
     if (VIEW_KEYS.includes(k)) continue
     if (k === "default")
@@ -86,21 +113,40 @@ export function viewErrors(view, { file, fields, groupFields, lenient = false })
           if (!has(fields, f)) names.push(`${file}: filter names "${f}", which is not a field of ${view.collection}`)
     }
   }
-  const warnings = []
+  const warnings: string[] = []
   if (view.display !== undefined)
     displayErrors(view.display, { fields, groupFields, collection: view.collection, errors, names, warnings, file })
   return lenient ? { errors, warnings: [...warnings, ...names] } : { errors: [...errors, ...names], warnings }
 }
 
-function displayErrors(display, { fields, groupFields, collection, errors, names: dangling, warnings, file }) {
-  const err = m => errors.push(`${file}: ${m}`)
+function displayErrors(
+  display: unknown,
+  {
+    fields,
+    groupFields,
+    collection,
+    errors,
+    names: dangling,
+    warnings,
+    file,
+  }: {
+    fields?: FieldMap | null
+    groupFields?: (groupBy: unknown) => FieldMap | null | undefined
+    collection: string
+    errors: string[]
+    names: string[]
+    warnings: string[]
+    file: string
+  }
+): void {
+  const err = (m: string): void => void errors.push(`${file}: ${m}`)
   if (!isMap(display)) return err("`display` is a mapping of nav · list · record · form")
   const names = fields ? [...Object.keys(fields), ...BUILTIN_FIELDS] : null
-  const field = (pos, f) => {
+  const field = (pos: string, f: unknown): void => {
     if (names && !names.includes(String(f).replace(/^-/, "")))
       dangling.push(`${file}: ${pos} names "${f}", which is not a field of ${collection}`)
   }
-  const template = (tpl, position, over = names) => {
+  const template = (tpl: string, position: string, over: string[] | null = names): void => {
     for (const e of validateTemplate(tpl, { position, fields: over }))
       (/is not a field/.test(e) ? dangling : errors).push(`${file}: ${e}`)
   }
@@ -161,13 +207,13 @@ function displayErrors(display, { fields, groupFields, collection, errors, names
  * @returns {{ errors: string[], warnings: string[], v1?: true }}
  */
 export function bindingErrors(
-  b,
-  { file, fields, lenient = false }: { file: string; fields?: Record<string, unknown>; lenient?: boolean }
-) {
+  b: unknown,
+  { file, fields, lenient = false }: { file: string; fields?: FieldMap | null; lenient?: boolean }
+): ViewReport {
   if (!isMap(b)) return { errors: [`${file}: a command-binding is a mapping`], warnings: [] }
   if (V1_BINDING_KEYS.some(k => k in b)) return { v1: true, errors: [], warnings: [] }
-  const errors = []
-  const warnings = []
+  const errors: string[] = []
+  const warnings: string[] = []
   for (const k of Object.keys(b))
     if (!BINDING_KEYS.includes(k))
       errors.push(`${file}: unknown key \`${k}\` — a command-binding's keys are ${BINDING_KEYS.join(" · ")}`)
@@ -198,8 +244,8 @@ export function bindingErrors(
 
 /** The field names a filter conditions on at its top level, through `_and` / `_or`. A nested
  *  non-operator key is a field of the referenced record, which only that collection can judge. */
-function filterFields(filter) {
-  const out = []
+function filterFields(filter: unknown): string[] {
+  const out: string[] = []
   for (const [k, v] of Object.entries(filter ?? {})) {
     if (k === "_and" || k === "_or") {
       for (const c of Array.isArray(v) ? v : []) out.push(...filterFields(c))
@@ -209,17 +255,17 @@ function filterFields(filter) {
   }
   return out
 }
-const has = (fields, f) => BUILTIN_FIELDS.includes(f) || f in fields
+const has = (fields: FieldMap, f: string): boolean => BUILTIN_FIELDS.includes(f) || f in fields
 
 /**
  * A view's display, resolved: the collection's display with the view's merged over it sub-block by
  * sub-block — a sub-block the view omits is the collection's, and a key the view sets wins. `nav` is
  * the exception: a view with no `nav` has no nav entry, so the collection's is not inherited.
  */
-export function viewDisplay(collectionDisplay, view) {
+export function viewDisplay(collectionDisplay: unknown, view: ViewDoc | null | undefined): ViewDoc {
   const own = isMap(view?.display) ? view.display : {}
   const base = isMap(collectionDisplay) ? collectionDisplay : {}
-  const out = {}
+  const out: ViewDoc = {}
   for (const b of Object.keys(VIEW_DISPLAY)) {
     if (b === "nav" && !own.nav) continue
     const v = { ...(base[b] ?? {}), ...(own[b] ?? {}) }
@@ -234,7 +280,7 @@ export function viewDisplay(collectionDisplay, view) {
 // base, view))` is `view` again, which is what lets a save over a package's view write only what differs.
 
 /** `base` refined by `overlay`: deep, overlay wins at a leaf, a list is replaced whole, `null` removes. */
-export function overlayView(base, overlay) {
+export function overlayView(base: ViewDoc | null | undefined, overlay: ViewDoc | null | undefined): ViewDoc {
   const out = structuredClone(base ?? {})
   for (const [k, v] of Object.entries(overlay ?? {})) {
     if (v === null) delete out[k]
@@ -245,8 +291,8 @@ export function overlayView(base, overlay) {
 }
 
 /** The smallest overlay turning `base` into `view` — `{}` when they agree. */
-export function viewOverlayOf(base, view) {
-  const out = {}
+export function viewOverlayOf(base: ViewDoc | null | undefined, view: ViewDoc | null | undefined): ViewDoc {
+  const out: ViewDoc = {}
   for (const [k, v] of Object.entries(view ?? {})) {
     const b = base?.[k]
     if (isMap(v) && isMap(b)) {

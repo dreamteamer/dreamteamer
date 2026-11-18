@@ -15,7 +15,7 @@ import path from "node:path"
 import { load } from "./yaml.ts"
 import { storageOf } from "./descriptor.ts"
 import { normalizeNamespaces } from "./namespace.ts"
-import type { Descriptor, Descriptors, Manifest } from "./record-types.ts"
+import type { Descriptor, Descriptors, Manifest, ManifestModule } from "./record-types.ts"
 
 export const RUNTIME_DIR = ".dreamteamer" as const
 
@@ -160,7 +160,7 @@ export function sourceRoots(root: string): string[] {
   // next `dt compile`. Reading only the new key would silently make this list the workspace root
   // alone — and this list is what ref surgery walks, so "silently fewer modules" means a rename
   // that reports ✔ and leaves half the references dangling.
-  const isNpm = m => (m.location ? m.location === "node_modules" : m.channel === "npm")
+  const isNpm = (m: ManifestModule) => (m.location ? m.location === "node_modules" : m.channel === "npm")
   const roots = [root, ...modules.filter(m => !isNpm(m)).map(m => path.resolve(root, m.root))]
   return [...new Set(roots)]
 }

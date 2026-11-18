@@ -5,15 +5,18 @@
 import { compareValues } from "./temporal.ts"
 import type { Fields } from "./record-types.ts"
 
-export function matchesFilter(record: Fields, filter: unknown, resolve?: unknown): boolean {
+/** Resolves a `<collection>/<id>` reference to that record's fields, or null when it dangles. */
+export type RefResolver = (ref: string) => Fields | null | undefined
+
+export function matchesFilter(record: Fields, filter: unknown, resolve?: RefResolver | null): boolean {
   if (filter == null || typeof filter !== "object") return true
   for (const [key, cond] of Object.entries(filter)) {
     if (key === "_and") {
-      if (!cond.every(c => matchesFilter(record, c, resolve))) return false
+      if (!cond.every((c: unknown) => matchesFilter(record, c, resolve))) return false
       continue
     }
     if (key === "_or") {
-      if (!cond.some(c => matchesFilter(record, c, resolve))) return false
+      if (!cond.some((c: unknown) => matchesFilter(record, c, resolve))) return false
       continue
     }
     if (!matchesField(record[key], cond, resolve)) return false
@@ -21,7 +24,7 @@ export function matchesFilter(record: Fields, filter: unknown, resolve?: unknown
   return true
 }
 
-function matchesField(value, cond, resolve) {
+function matchesField(value: unknown, cond: unknown, resolve: RefResolver | null | undefined): boolean {
   if (cond === null || typeof cond !== "object" || Array.isArray(cond)) return compare("_eq", value, cond)
   for (const [op, operand] of Object.entries(cond)) {
     if (!op.startsWith("_")) {
@@ -46,10 +49,10 @@ function matchesField(value, cond, resolve) {
   return true
 }
 
-function compare(op, v, operand) {
+function compare(op: string, v: any, operand: unknown): boolean {
   const o = resolveTokens(operand)
   if (o === UNKNOWN_TOKEN) return false
-  const s = x => String(x ?? "")
+  const s = (x: unknown) => String(x ?? "")
   const empty = v == null || v === "" || (Array.isArray(v) && v.length === 0)
   // array field values (tags, attendees): containment semantics for eq/contains
   const arr = Array.isArray(v)
@@ -151,7 +154,7 @@ export const KNOWN_OPERATORS: ReadonlySet<string> = new Set([
 ])
 
 const warned = new Set()
-function warnUnknownOp(op) {
+function warnUnknownOp(op: string): void {
   if (warned.has(op)) return
   warned.add(op)
   console.warn(
@@ -187,10 +190,10 @@ export function unknownOperators(filter: unknown, found: Set<string> = new Set()
 export const VALUE_TOKENS = ["$today", "$now"]
 const TOKEN = /^\$[A-Za-z_]\w*$/
 const UNKNOWN_TOKEN = Symbol("unknown token")
-const pad = n => String(n).padStart(2, "0")
+const pad = (n: number) => String(n).padStart(2, "0")
 
 /** The value a token stands for at `at` (default: now), or undefined for a string that is not a token. */
-export function tokenValue(value, at = new Date()) {
+export function tokenValue(value: unknown, at = new Date()): string | typeof UNKNOWN_TOKEN | undefined {
   if (typeof value !== "string" || !TOKEN.test(value)) return undefined
   const day = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`
   if (value === "$today") return day
@@ -202,7 +205,7 @@ export function tokenValue(value, at = new Date()) {
   return UNKNOWN_TOKEN
 }
 
-function resolveTokens(o) {
+function resolveTokens(o: unknown): unknown {
   if (Array.isArray(o)) {
     const out = o.map(x => tokenValue(x) ?? x)
     return out.includes(UNKNOWN_TOKEN) ? UNKNOWN_TOKEN : out
@@ -212,7 +215,7 @@ function resolveTokens(o) {
 
 /** Every `$token` value in a filter tree that is not one of VALUE_TOKENS — what compile and
  *  `--where` refuse. */
-export function unknownTokens(filter, found = new Set()) {
+export function unknownTokens(filter: unknown, found: Set<string> = new Set()): Set<string> {
   if (typeof filter === "string") {
     if (TOKEN.test(filter) && !VALUE_TOKENS.includes(filter)) found.add(filter)
     return found
@@ -227,7 +230,7 @@ export function unknownTokens(filter, found = new Set()) {
 // there refused a proof that works — worse than the silent pass it was written to prevent.
 export const looseEq = (v: unknown, o: unknown): boolean =>
   v === o || String(v) === String(o) || (typeof v === "number" && Number(o) === v)
-const toArray = o =>
+const toArray = (o: unknown): unknown[] =>
   Array.isArray(o)
     ? o
     : String(o)

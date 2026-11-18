@@ -38,8 +38,25 @@ export interface Field {
   fields?: Record<string, Field>
   values?: string | Field
   item_title?: string
-  /** how surfaces draw the field: `form_section` names the section it sits in */
-  display?: { form_section?: string; [k: string]: unknown }
+  display?: FieldDisplay
+  [k: string]: unknown
+}
+
+/** How surfaces draw a field — the authored `display` block of one field. */
+export interface FieldDisplay {
+  /** the form section the field sits in */
+  form_section?: string
+  editor?: string
+  viewer?: string
+  editable?: boolean | "create"
+  hidden?: Array<"list" | "form" | "record">
+  /** handed to the editor and viewer components verbatim */
+  options?: Record<string, unknown>
+  unit?: string
+  unit_field?: string
+  direction?: "ltr" | "rtl"
+  width?: number
+  placeholder?: string
   [k: string]: unknown
 }
 
@@ -283,7 +300,7 @@ export interface RelocateMove {
   id: string
   from: string
   to: string
-  why: "placement" | "shape"
+  why: "placement" | "shape" | "to-root"
 }
 
 export interface RelocatePlan {

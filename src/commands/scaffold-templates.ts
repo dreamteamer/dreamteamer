@@ -3,9 +3,16 @@
 // lets the engine write it into .env (the env action, D61). Pure: strings in, strings out.
 
 /** `acme-crm` → `ACME_CRM_TOKEN`: the one env key the scaffolded unit declares. */
-export const scaffoldKey = id => `${id.toUpperCase().replace(/-/g, "_")}_TOKEN`
+export const scaffoldKey = (id: string): string => `${id.toUpperCase().replace(/-/g, "_")}_TOKEN`
 
-export function readmeText({ id, pkgName, description, extension }) {
+export interface ScaffoldText {
+  id: string
+  pkgName?: string
+  description?: string
+  extension?: boolean
+}
+
+export function readmeText({ id, pkgName, description, extension }: ScaffoldText): string {
   const key = scaffoldKey(id)
   return [
     `# ${pkgName}`,
@@ -30,7 +37,7 @@ export function readmeText({ id, pkgName, description, extension }) {
   ].join("\n")
 }
 
-export function extensionText({ id }) {
+export function extensionText({ id }: ScaffoldText): string {
   const key = scaffoldKey(id)
   return `// ${id} — the extension entry. \`activate(dt)\` receives the running engine's API; it returns what this
 // module contributes. The one setup unit asks for a token and names the .env write; the engine performs
@@ -68,7 +75,7 @@ export default function activate(dt) {
 
 /** The one test a new module starts with: installed the way a stranger installs it, on the engine that
  *  runs the test, and checked. `npm test` runs it (`node --test`). */
-export function testText({ id }) {
+export function testText({ id }: ScaffoldText): string {
   return `// ${id} — installed into a fresh workspace on the engine running this test, the way a stranger installs it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
