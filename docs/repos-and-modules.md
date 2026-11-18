@@ -12,7 +12,7 @@ declared in the workspace's `package.json` under `dreamteamer.git_modules` and r
 
 They MUST live in config rather than in records, because of a genuine bootstrap ordering problem: a
 fresh clone has no `.dreamteamer/`, therefore no compiled schemas, therefore no readable records — so
-module clones have to be restorable *before* anything can be read.
+module clones have to be restorable _before_ anything can be read.
 
 ```bash
 dt install                          # make the checkout ready: restores git_modules/ from the lockfile map, compiles

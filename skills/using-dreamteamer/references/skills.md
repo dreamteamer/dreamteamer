@@ -10,15 +10,15 @@ reader** is that same session two minutes later, attention split between the ski
 taking every sentence literally. Every craft rule below serves one of those two, and when a rule
 seems fussy, ask which reader it protects.
 
-| the question | read |
-|---|---|
-| should this be a skill at all | when a skill exists |
-| will anyone find it | discovery — the description |
-| how big, how split | architecture |
+| the question                        | read                         |
+| ----------------------------------- | ---------------------------- |
+| should this be a skill at all       | when a skill exists          |
+| will anyone find it                 | discovery — the description  |
+| how big, how split                  | architecture                 |
 | what shape should the guidance take | the form matches the failure |
-| the writing itself | body craft |
-| it ships to strangers | portability |
-| shipping, testing, keeping it true | lifecycle |
+| the writing itself                  | body craft                   |
+| it ships to strangers               | portability                  |
+| shipping, testing, keeping it true  | lifecycle                    |
 
 ## when a skill exists — and when it must not
 
@@ -31,14 +31,14 @@ duplicate beside it is worse than the gap.
 **Don't create** for:
 
 - **One-off fixes** — just do them. A narrative of how you solved something once is a story, not a
-  skill; keep the *technique* if it generalizes, drop the episode.
+  skill; keep the _technique_ if it generalizes, drop the episode.
 - **Workspace conventions** — `DREAMTEAMER.md` is compiled into every harness's instruction file,
   loaded always, and needs no trigger; a convention in a
   skill is a convention a session might not load.
 - **Anything a validator can enforce** — automate it and save prose for judgment calls. A regex in
   `check` never gets skimmed past; a sentence does.
 - **What the model already knows.** A skill restating general knowledge costs its index line in
-  every session for nothing. Skills carry what is *local*: this workspace's conventions, this
+  every session for nothing. Skills carry what is _local_: this workspace's conventions, this
   tool's measured traps, the limit someone paid a day to find.
 
 ## discovery — the description is a trigger, never a summary
@@ -63,7 +63,7 @@ description: use when a meeting recording or pasted transcript needs to land in 
 ```
 
 The failure mode is measured, not theoretical: a description that summarizes the process becomes a
-shortcut the agent takes *instead of reading the skill*. The body becomes documentation nobody
+shortcut the agent takes _instead of reading the skill_. The body becomes documentation nobody
 opens.
 
 Pack the line with what a stuck session would actually search or think: **error strings, symptoms,
@@ -85,7 +85,7 @@ file is itself an example: you loaded it because its routing table named it.
   smaller.
 - The folder shape is the point: references, scripts and assets travel with the folder through
   compile and extraction.
-- Two situations with two different *triggers* are two skills — a session searching for one should
+- Two situations with two different _triggers_ are two skills — a session searching for one should
   not have to load the other. Two aspects of one trigger are one skill with two references.
 
 ## the form matches the failure
@@ -93,11 +93,11 @@ file is itself an example: you loaded it because its routing table named it.
 Before writing, name the failure the future reader will actually have. The form that fixes one
 failure type does nothing for another:
 
-| the future reader's failure | skill type | the form that works |
-|---|---|---|
-| doesn't know the technique | technique | ordered steps, one excellent example, runnable commands |
-| doesn't recognize the situation | pattern | recognition cues, when-NOT-to-apply, a counter-example |
-| can't hold the syntax or limits | reference | tables, trap notes, and pointers at the live authority |
+| the future reader's failure                | skill type | the form that works                                                                    |
+| ------------------------------------------ | ---------- | -------------------------------------------------------------------------------------- |
+| doesn't know the technique                 | technique  | ordered steps, one excellent example, runnable commands                                |
+| doesn't recognize the situation            | pattern    | recognition cues, when-NOT-to-apply, a counter-example                                 |
+| can't hold the syntax or limits            | reference  | tables, trap notes, and pointers at the live authority                                 |
 | knows the rule and skips it under pressure | discipline | the rule, its loopholes named and forbidden, an excuse→reality table, a red-flags list |
 
 **Discipline skills** deserve the extra machinery because a rule without its loopholes named will
@@ -105,7 +105,7 @@ be rationalized around — under time pressure an agent negotiates with "don't X
 workarounds ("don't keep it as reference", "don't adapt it while testing"), list the excuses beside
 their realities, and give a red-flags list the reader can self-check against.
 
-**The reverse trap:** prohibitions backfire on *shaping* problems. When the failure is output of
+**The reverse trap:** prohibitions backfire on _shaping_ problems. When the failure is output of
 the wrong shape — a bloated prompt, a buried verdict — a list of don'ts measurably produces more of
 the unwanted content, because each "don't" is something to negotiate with. State what the output
 IS: its parts, in order. A recipe leaves nothing to negotiate.
@@ -113,7 +113,7 @@ IS: its parts, in order. A recipe leaves nothing to negotiate.
 ## body craft
 
 - **Lean and concrete over complete.** What to read first, the exact shape to produce, the
-  runnable commands — real ones, copy-pasteable, not pseudo-syntax. Prose that explains *why*
+  runnable commands — real ones, copy-pasteable, not pseudo-syntax. Prose that explains _why_
   earns its place only where the why prevents a wrong turn.
 - **One excellent example** beats many mediocre ones — adapted from a live workspace, identities
   swapped for a synthetic cast.
@@ -157,7 +157,7 @@ Skills ship with modules and are read by any operator on any machine:
   re-run. Reading your own skill proves nothing — you already know what you meant. Discipline
   skills get the harder version: a scenario with pressure in it (time, sunk cost), because that is
   when the rule will actually be tested.
-- **Update when reality moves.** A stale skill is worse than none, because it is *trusted*: a
+- **Update when reality moves.** A stale skill is worse than none, because it is _trusted_: a
   renamed verb or a changed limit in a skill sends every future session down the old path
   confidently. When you catch a skill lying, fixing it is part of the task you are on, not a
   follow-up.
@@ -176,17 +176,17 @@ discipline patterns, and the lean prose are the standard dreamteamer skills are 
 
 ## common mistakes
 
-| mistake | reality |
-|---|---|
-| a description that summarizes the workflow | it becomes a shortcut — the body is never read and steps are silently skipped |
-| a description without the reader's search terms | error strings, symptoms and synonyms are how a stuck session finds it |
-| everything in one `SKILL.md` | every load pays for all of it — digest + references, routed by a table |
-| a narrative of one debugging session | keep the technique, drop the episode |
-| a skill for what `check` could enforce | automate it; prose is for judgment |
-| copying a fact the descriptor already holds | prose drifts, the descriptor cannot — point at it |
-| a discipline rule with no loopholes named | it will be rationalized around under pressure |
-| don't-lists for output shape | prohibitions invite negotiation — state what the output IS |
-| personal names, keys, or absolute paths in the body | skills ship to strangers; `.env` + `${env:VAR}` |
-| scripts referenced under `.claude/skills/` | generated output — wiped next compile; use the source path |
-| verified by reading it yourself | dispatch a fresh context with a real task; its mistakes are your gaps |
-| telling the operator it works now | it works in their **next** session |
+| mistake                                             | reality                                                                       |
+| --------------------------------------------------- | ----------------------------------------------------------------------------- |
+| a description that summarizes the workflow          | it becomes a shortcut — the body is never read and steps are silently skipped |
+| a description without the reader's search terms     | error strings, symptoms and synonyms are how a stuck session finds it         |
+| everything in one `SKILL.md`                        | every load pays for all of it — digest + references, routed by a table        |
+| a narrative of one debugging session                | keep the technique, drop the episode                                          |
+| a skill for what `check` could enforce              | automate it; prose is for judgment                                            |
+| copying a fact the descriptor already holds         | prose drifts, the descriptor cannot — point at it                             |
+| a discipline rule with no loopholes named           | it will be rationalized around under pressure                                 |
+| don't-lists for output shape                        | prohibitions invite negotiation — state what the output IS                    |
+| personal names, keys, or absolute paths in the body | skills ship to strangers; `.env` + `${env:VAR}`                               |
+| scripts referenced under `.claude/skills/`          | generated output — wiped next compile; use the source path                    |
+| verified by reading it yourself                     | dispatch a fresh context with a real task; its mistakes are your gaps         |
+| telling the operator it works now                   | it works in their **next** session                                            |

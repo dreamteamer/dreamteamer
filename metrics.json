@@ -1,30 +1,30 @@
 {
-	"measured": "2026-11-12",
-	"note": "Budgets are ceilings with ~10% headroom. Raising one is a deliberate act — do it in the same commit as the growth, and say why in the message.",
-	"code": {
-		"total": 10886,
-		"comments": 5022,
-		"decisions": 4891,
-		"files": 45
-	},
-	"surface": {
-		"collections": 9,
-		"collection-templates": 0,
-		"skills": 1,
-		"agents": 1,
-		"ui-views": 0,
-		"commands": 0
-	},
-	"prose": {
-		"skill-lines": 3923,
-		"system-lines": 4418
-	},
-	"budgets": {
-		"code.total": 12100,
-		"code.decisions": 5450,
-		"surface.collections": 9,
-		"surface.skills": 1,
-		"surface.agents": 1,
-		"prose.skill-lines": 4316
-	}
+  "measured": "2026-11-12",
+  "note": "Budgets are ceilings with ~10% headroom. Raising one is a deliberate act — do it in the same commit as the growth, and say why in the message.",
+  "code": {
+    "total": 10886,
+    "comments": 5022,
+    "decisions": 4891,
+    "files": 45
+  },
+  "surface": {
+    "collections": 9,
+    "collection-templates": 0,
+    "skills": 1,
+    "agents": 1,
+    "ui-views": 0,
+    "commands": 0
+  },
+  "prose": {
+    "skill-lines": 3923,
+    "system-lines": 4418
+  },
+  "budgets": {
+    "code.total": 12100,
+    "code.decisions": 5450,
+    "surface.collections": 9,
+    "surface.skills": 1,
+    "surface.agents": 1,
+    "prose.skill-lines": 4316
+  }
 }

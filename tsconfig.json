@@ -1,30 +1,30 @@
 {
-	// src/*.ts → dist/*.js: `npm run build` (scripts/build.mjs). dist/ sits one level under the package
-	// root like src/, so every `new URL('../package.json', import.meta.url)` resolves the same from both.
-	//
-	// The sources are the former .js files renamed and NOT yet typed, so tsc reports type errors; the
-	// build emits regardless (noEmitOnError: false) and `npm run typecheck` is where they are counted.
-	"compilerOptions": {
-		"target": "es2022",
-		"module": "nodenext",
-		"moduleResolution": "nodenext",
-		"lib": ["es2023"],
-		"types": ["node"],
-		// imports name the .ts file (Node strips the types when tests import src/ directly); the build
-		// rewrites them to .js. Only erasable syntax, so stripping is all a run from src/ needs.
-		"allowImportingTsExtensions": true,
-		"rewriteRelativeImportExtensions": true,
-		"erasableSyntaxOnly": true,
-		"strict": false,
-		"noImplicitAny": false,
-		"noEmitOnError": false,
-		"skipLibCheck": true,
-		"rootDir": "src",
-		"outDir": "dist",
-		"sourceMap": false,
-		"declaration": false
-	},
-	"include": ["src/**/*.ts"],
-	// the public declarations are hand-written (src/*.d.ts) and copied into dist/ by the build
-	"exclude": ["src/**/*.d.ts"]
+  // src/*.ts → dist/*.js: `npm run build` (scripts/build.mjs). dist/ sits one level under the package
+  // root like src/, so every `new URL('../package.json', import.meta.url)` resolves the same from both.
+  //
+  // The sources are the former .js files renamed and NOT yet typed, so tsc reports type errors; the
+  // build emits regardless (noEmitOnError: false) and `npm run typecheck` is where they are counted.
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "lib": ["es2023"],
+    "types": ["node"],
+    // imports name the .ts file (Node strips the types when tests import src/ directly); the build
+    // rewrites them to .js. Only erasable syntax, so stripping is all a run from src/ needs.
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "erasableSyntaxOnly": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "noEmitOnError": false,
+    "skipLibCheck": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "sourceMap": false,
+    "declaration": false
+  },
+  "include": ["src/**/*.ts"],
+  // the public declarations are hand-written (src/*.d.ts) and copied into dist/ by the build
+  "exclude": ["src/**/*.d.ts"]
 }

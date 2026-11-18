@@ -6,7 +6,7 @@ storage:
   shape: file
   suffix: fixbadnav
 ids:
-  from: '{{ title | slug }}'
+  from: "{{ title | slug }}"
 fields:
   title:
     type: string

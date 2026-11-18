@@ -10,12 +10,12 @@ ONE honest collection with real records in it, published — not an architecture
 No UI is assumed anywhere below. The CLI and the records are complete on their own; any surface
 that reads the compiled runtime can render the same workspace later, unchanged.
 
-| the situation | read |
-|---|---|
-| nothing exists yet | the skeleton, then path A |
-| real files already exist | the skeleton, then path B |
+| the situation                                 | read                      |
+| --------------------------------------------- | ------------------------- |
+| nothing exists yet                            | the skeleton, then path A |
+| real files already exist                      | the skeleton, then path B |
 | dreamteamer joins a repo that also holds code | the skeleton, then path C |
-| "do I need git? a server? an account?" | git, in plain words |
+| "do I need git? a server? an account?"        | git, in plain words       |
 
 ## the skeleton — one command, or five
 
@@ -106,15 +106,15 @@ prefers. Nothing about the code moves; `check` and `compile` read only what desc
 
 ## the first hour's mistakes
 
-| mistake | reality |
-|---|---|
-| modeling the whole domain up front | one collection used tomorrow beats five perfect ones — widening is always safe later (`data-modeling.md` Part IX) |
-| test data in the seed records | real records are what catch the model's mistakes |
-| skipping git as "too technical" | one local command, no account — and it is the history, the undo and the publish step |
-| inventing ids by hand | `ids.from` owns identity — pass `--id` only when the operator named one |
-| hand-writing the first descriptor | `dt add collections` is compile-gated and publishes itself; hand-written sources owe `dt compile` |
-| rewriting existing files to fit a guessed schema | describe reality, compile, `check` — then decide which violations are worth fixing in the data |
-| waiting for a UI before starting | the CLI and the records are the complete system; any surface renders them later, unchanged |
+| mistake                                          | reality                                                                                                           |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| modeling the whole domain up front               | one collection used tomorrow beats five perfect ones — widening is always safe later (`data-modeling.md` Part IX) |
+| test data in the seed records                    | real records are what catch the model's mistakes                                                                  |
+| skipping git as "too technical"                  | one local command, no account — and it is the history, the undo and the publish step                              |
+| inventing ids by hand                            | `ids.from` owns identity — pass `--id` only when the operator named one                                           |
+| hand-writing the first descriptor                | `dt add collections` is compile-gated and publishes itself; hand-written sources owe `dt compile`                 |
+| rewriting existing files to fit a guessed schema | describe reality, compile, `check` — then decide which violations are worth fixing in the data                    |
+| waiting for a UI before starting                 | the CLI and the records are the complete system; any surface renders them later, unchanged                        |
 
 ## The editor
 

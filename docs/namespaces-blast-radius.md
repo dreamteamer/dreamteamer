@@ -1,7 +1,7 @@
 # Namespaces — gaps found, blast radius, and what a consumer has to do
 
 Written alongside the change that added declared namespaces. Its job is to be honest about what was
-already broken, what every consumer has to do about it, and which claims here were *verified* rather
+already broken, what every consumer has to do about it, and which claims here were _verified_ rather
 than reasoned.
 
 **A record of that change, not a reference.** Sections 1–3 and 5–6 describe the engine as it was then,
@@ -14,24 +14,24 @@ the HTTP server is the `@dreamteamer/http` extension. Section 4 is kept current.
 All four were found while scoping namespaces; none of them needed namespaces to be reachable. Each is
 now a hard error or a fix, with a test.
 
-| # | Gap | Symptom before | Where |
-|---|---|---|---|
-| 1 | **A collection whose `storage.path` is inside another's** | MEASURED data loss. Give A `data/health` and B `data/health/doctors`: A's recursive walk indexes B's records as its own, `dt A list` prints B's records under A's name, `check` reports B's fields as unknown fields of A, and a write through A can overwrite a record of B. `compile` reported ✔ throughout, because nothing ever compared two collections' paths. | `namespace.storageOverlaps`, called from `compile` |
-| 2 | **A slashed collection name** | Compiled clean, wrote `.dreamteamer/collections/<ns>/<name>.collection.yaml`, then vanished: `loadDescriptors` read one directory level, so the collection was absent from the runtime while compile said ✔ and `dt <c> list` answered "unknown collection" for something that had just compiled. | `runtime.loadDescriptors` (now recursive) + `namespace.unqualifiedProblems` |
-| 3 | **A malformed `id.pattern`** | `patternRe` throws, and it is called from `store.add` and `check` — so a typo surfaced as a raw `Invalid regular expression` from inside a write instead of a compile error naming the descriptor. | `compile`, beside the JSON-Schema gate |
-| 4 | **`fileToRecord` (extension) matched the FIRST collection directory, not the longest** | The same open file resolved to different collections depending on descriptor enumeration order. The engine's `pathToRecord` has always done longest-prefix; the extension's copy never learned it. | `dreamteamer-vscode/src/fsdata.ts` |
+| #   | Gap                                                                                    | Symptom before                                                                                                                                                                                                                                                                                                                                                       | Where                                                                       |
+| --- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| 1   | **A collection whose `storage.path` is inside another's**                              | MEASURED data loss. Give A `data/health` and B `data/health/doctors`: A's recursive walk indexes B's records as its own, `dt A list` prints B's records under A's name, `check` reports B's fields as unknown fields of A, and a write through A can overwrite a record of B. `compile` reported ✔ throughout, because nothing ever compared two collections' paths. | `namespace.storageOverlaps`, called from `compile`                          |
+| 2   | **A slashed collection name**                                                          | Compiled clean, wrote `.dreamteamer/collections/<ns>/<name>.collection.yaml`, then vanished: `loadDescriptors` read one directory level, so the collection was absent from the runtime while compile said ✔ and `dt <c> list` answered "unknown collection" for something that had just compiled.                                                                    | `runtime.loadDescriptors` (now recursive) + `namespace.unqualifiedProblems` |
+| 3   | **A malformed `id.pattern`**                                                           | `patternRe` throws, and it is called from `store.add` and `check` — so a typo surfaced as a raw `Invalid regular expression` from inside a write instead of a compile error naming the descriptor.                                                                                                                                                                   | `compile`, beside the JSON-Schema gate                                      |
+| 4   | **`fileToRecord` (extension) matched the FIRST collection directory, not the longest** | The same open file resolved to different collections depending on descriptor enumeration order. The engine's `pathToRecord` has always done longest-prefix; the extension's copy never learned it.                                                                                                                                                                   | `dreamteamer-vscode/src/fsdata.ts`                                          |
 
 Gap 2 is the one to learn from: it is the decision-156 shape again — a silent ✔ over work that did not
-happen. It is why namespaces are *declared* rather than inferred, and why the declaration is enforced.
+happen. It is why namespaces are _declared_ rather than inferred, and why the declaration is enforced.
 
 ## 2. Gaps the namespace work introduced, and how they were closed
 
-| Introduced | Closed by |
-|---|---|
-| `schema-ops` derives a descriptor's source path from its name, so `add-field` on `health/doctors` wrote `collections/health/doctors.collection.yaml` — which a flat readdir skipped while the verb reported ✔ | `compile` enumerates `collections/` **recursively** (every other kind stays flat: their ids are single segments) |
-| `:name` is one path segment, so a slashed name would break 15 Express routes and the extension's `seg[]` router | Callers **percent-encode** the collection name. Verified against real Express 5: `/collections/health%2Fdoctors/records` matches `:name` and decodes to `health/doctors`, so no route changed. `*name` was rejected — a greedy wildcard, a literal and a second wildcard in one pattern has several readings |
-| `extension.ts` built six URLs with a raw `${d.name}` | All six now `encodeURIComponent`. The webview's `adapter.ts` already did |
-| A regex cannot find the collection/id boundary | `native.ts`'s `REF_RE` matches the whole slash-path and defers to `engine().parseRef` |
+| Introduced                                                                                                                                                                                                    | Closed by                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `schema-ops` derives a descriptor's source path from its name, so `add-field` on `health/doctors` wrote `collections/health/doctors.collection.yaml` — which a flat readdir skipped while the verb reported ✔ | `compile` enumerates `collections/` **recursively** (every other kind stays flat: their ids are single segments)                                                                                                                                                                                             |
+| `:name` is one path segment, so a slashed name would break 15 Express routes and the extension's `seg[]` router                                                                                               | Callers **percent-encode** the collection name. Verified against real Express 5: `/collections/health%2Fdoctors/records` matches `:name` and decodes to `health/doctors`, so no route changed. `*name` was rejected — a greedy wildcard, a literal and a second wildcard in one pattern has several readings |
+| `extension.ts` built six URLs with a raw `${d.name}`                                                                                                                                                          | All six now `encodeURIComponent`. The webview's `adapter.ts` already did                                                                                                                                                                                                                                     |
+| A regex cannot find the collection/id boundary                                                                                                                                                                | `native.ts`'s `REF_RE` matches the whole slash-path and defers to `engine().parseRef`                                                                                                                                                                                                                        |
 
 ## 3. Blast radius by consumer
 
@@ -70,7 +70,7 @@ propagates into every harness on the next `dt compile`, verified in a fixture.
 **No change needed, and none possible to force.** A recipes module ships unprefixed collections, which
 are default-namespace collections and behave exactly as before. (⚠ The rest of this paragraph was
 reversed in 0.19.0 — a namespace is now declared by the module that owns it; see section 4.) A module
-*cannot* declare a namespace —
+_cannot_ declare a namespace —
 `dreamteamer.namespaces` is read from the **workspace** package.json only, deliberately: a module that
 could declare a namespace could move where another module's records live, and the whole point of a
 namespace is that the workspace decides how its own data is partitioned. A workspace that wants a copied
@@ -105,18 +105,18 @@ compile error, which is the whole point of gap 2.
 
 ## 5. Version skew — verified, not assumed
 
-| Situation | Behaviour |
-|---|---|
-| **New engine, runtime compiled by an older one** (the normal state between `git pull` and `dt compile`) | `namespaces` reads as `[]`, the store loads, records read, unprefixed references parse. No throw. ✔ verified |
-| **New engine, workspace declares nothing** | Identical to before in every respect. ✔ verified |
-| **⚠ OLD engine, runtime compiled by this one, workspace USES a namespace** | The old engine's `loadDescriptors` reads one directory level, so the namespaced collection is **absent** — not corrupt, but silently missing, and `dt compile` on the old engine reproduces the same absence. ✔ verified |
-| **Old engine, workspace declares no namespace** | Unaffected. |
+| Situation                                                                                               | Behaviour                                                                                                                                                                                                                |
+| ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **New engine, runtime compiled by an older one** (the normal state between `git pull` and `dt compile`) | `namespaces` reads as `[]`, the store loads, records read, unprefixed references parse. No throw. ✔ verified                                                                                                             |
+| **New engine, workspace declares nothing**                                                              | Identical to before in every respect. ✔ verified                                                                                                                                                                         |
+| **⚠ OLD engine, runtime compiled by this one, workspace USES a namespace**                              | The old engine's `loadDescriptors` reads one directory level, so the namespaced collection is **absent** — not corrupt, but silently missing, and `dt compile` on the old engine reproduces the same absence. ✔ verified |
+| **Old engine, workspace declares no namespace**                                                         | Unaffected.                                                                                                                                                                                                              |
 
 So the one hard constraint: **a workspace that adopts a namespace requires every consumer of that
 workspace — CLI, extension, any script — to be on a namespace-aware engine.** This is the same shape as
 the pre-flatten note in CLAUDE.md, and reachable the same way: a shared workspace where two engines
 disagree (the self-shadowing dev-clone case), or an extension pinned to an older engine. The extension
-itself is safe either way because it loads `namespace.js` tolerantly; what is *not* safe is an old
+itself is safe either way because it loads `namespace.js` tolerantly; what is _not_ safe is an old
 **engine** compiling a namespaced workspace.
 
 ## 6. What is NOT covered

@@ -2,158 +2,207 @@
 // several modules at once, and a `modules/<id>` entry in `dreamteamer.disable` drops whole ones — the
 // cherry-pick. Before this, one dependency was exactly one module, so a family of related modules
 // meant a repo (and an install) per module, or a root that tried to be all of them at once.
-import { test, describe } from 'node:test';
-import assert from 'node:assert';
-import fs from 'node:fs';
-import path from 'node:path';
-import { workspace, compileQuietly, compileError, simpleCollection, writeModule } from '../helpers/ws.ts';
-import { discoverModules } from '../../src/compile.ts';
-import { dump } from '../../src/yaml.ts';
+import { test, describe } from "node:test"
+import assert from "node:assert"
+import fs from "node:fs"
+import path from "node:path"
+import { workspace, compileQuietly, compileError, simpleCollection, writeModule } from "../helpers/ws.ts"
+import { discoverModules } from "../../src/compile.ts"
+import { dump } from "../../src/yaml.ts"
 
 /** A bundle at `dir`: a root package.json carrying the `dreamteamer` marker and `modules/<m>/` each
  *  shipping one collection named after the module. */
 function bundle(dir, rootName, modules, { marker = {} } = {}) {
-	fs.mkdirSync(dir, { recursive: true });
-	fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: rootName, version: '0.0.1', dreamteamer: marker }, null, '\t'));
-	for (const m of modules) {
-		const mroot = path.join(dir, 'modules', m);
-		fs.mkdirSync(path.join(mroot, 'collections'), { recursive: true });
-		fs.writeFileSync(path.join(mroot, 'package.json'), JSON.stringify({ name: m, version: '0.0.1', dreamteamer: { description: `the ${m} module` } }, null, '\t'));
-		fs.writeFileSync(path.join(mroot, 'collections', `${m}.collection.yaml`), dump({ name: m, ...simpleCollection() }));
-	}
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(
+    path.join(dir, "package.json"),
+    JSON.stringify({ name: rootName, version: "0.0.1", dreamteamer: marker }, null, "\t")
+  )
+  for (const m of modules) {
+    const mroot = path.join(dir, "modules", m)
+    fs.mkdirSync(path.join(mroot, "collections"), { recursive: true })
+    fs.writeFileSync(
+      path.join(mroot, "package.json"),
+      JSON.stringify({ name: m, version: "0.0.1", dreamteamer: { description: `the ${m} module` } }, null, "\t")
+    )
+    fs.writeFileSync(path.join(mroot, "collections", `${m}.collection.yaml`), dump({ name: m, ...simpleCollection() }))
+  }
 }
 
 /** The workspace with an npm dependency `@acme/pack` declared and installed as a bundle. */
 function withNpmBundle(modules, disable) {
-	const { root } = workspace({ compile: false });
-	const pkgPath = path.join(root, 'package.json');
-	const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-	pkg.dependencies = { ...pkg.dependencies, '@acme/pack': '0.0.1' };
-	if (disable) pkg.dreamteamer.disable = disable;
-	fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, '\t') + '\n');
-	bundle(path.join(root, 'node_modules', '@acme', 'pack'), '@acme/pack', modules);
-	return { root, pkg };
+  const { root } = workspace({ compile: false })
+  const pkgPath = path.join(root, "package.json")
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"))
+  pkg.dependencies = { ...pkg.dependencies, "@acme/pack": "0.0.1" }
+  if (disable) pkg.dreamteamer.disable = disable
+  fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, "\t") + "\n")
+  bundle(path.join(root, "node_modules", "@acme", "pack"), "@acme/pack", modules)
+  return { root, pkg }
 }
 
-const compiledCollections = (root) => fs.readdirSync(path.join(root, '.dreamteamer', 'collections')).filter((f) => f.endsWith('.collection.yaml')).map((f) => f.replace('.collection.yaml', ''));
+const compiledCollections = root =>
+  fs
+    .readdirSync(path.join(root, ".dreamteamer", "collections"))
+    .filter(f => f.endsWith(".collection.yaml"))
+    .map(f => f.replace(".collection.yaml", ""))
 
-describe('a dependency whose root carries modules/ is a package of modules', () => {
-	test('each sub-module is discovered on the npm channel; the root itself is not a module', () => {
-		const ws = withNpmBundle(['crates', 'lanes']);
-		const { modules } = discoverModules(ws.root, ws.pkg);
-		const byName = Object.fromEntries(modules.map((m) => [m.name, m]));
-		assert.ok(byName.crates && byName.lanes, `sub-modules missing: ${Object.keys(byName).join(', ')}`);
-		assert.equal(byName.crates.channel, 'npm');
-		assert.ok(byName.crates.root.endsWith(path.join('@acme', 'pack', 'modules', 'crates')));
-		assert.equal(byName['@acme/pack'], undefined, 'the bundle root must not be compiled as a module of its own');
-		const { code } = compileQuietly(ws);
-		assert.equal(code, 0);
-		const compiled = compiledCollections(ws.root);
-		assert.ok(compiled.includes('crates') && compiled.includes('lanes'), compiled.join(', '));
-	});
+describe("a dependency whose root carries modules/ is a package of modules", () => {
+  test("each sub-module is discovered on the npm channel; the root itself is not a module", () => {
+    const ws = withNpmBundle(["crates", "lanes"])
+    const { modules } = discoverModules(ws.root, ws.pkg)
+    const byName = Object.fromEntries(modules.map(m => [m.name, m]))
+    assert.ok(byName.crates && byName.lanes, `sub-modules missing: ${Object.keys(byName).join(", ")}`)
+    assert.equal(byName.crates.channel, "npm")
+    assert.ok(byName.crates.root.endsWith(path.join("@acme", "pack", "modules", "crates")))
+    assert.equal(byName["@acme/pack"], undefined, "the bundle root must not be compiled as a module of its own")
+    const { code } = compileQuietly(ws)
+    assert.equal(code, 0)
+    const compiled = compiledCollections(ws.root)
+    assert.ok(compiled.includes("crates") && compiled.includes("lanes"), compiled.join(", "))
+  })
 
-	test('a git_modules clone with modules/ unpacks the same way, on the git channel', () => {
-		const { root, ws } = workspace({ compile: false });
-		bundle(path.join(root, 'git_modules', 'family'), 'family', ['crates']);
-		const { modules } = discoverModules(root, ws.pkg);
-		const crates = modules.find((m) => m.name === 'crates');
-		assert.ok(crates, 'the clone\'s sub-module was not discovered');
-		assert.equal(crates.channel, 'git');
-		assert.equal(modules.find((m) => m.name === 'family'), undefined);
-	});
+  test("a git_modules clone with modules/ unpacks the same way, on the git channel", () => {
+    const { root, ws } = workspace({ compile: false })
+    bundle(path.join(root, "git_modules", "family"), "family", ["crates"])
+    const { modules } = discoverModules(root, ws.pkg)
+    const crates = modules.find(m => m.name === "crates")
+    assert.ok(crates, "the clone's sub-module was not discovered")
+    assert.equal(crates.channel, "git")
+    assert.equal(
+      modules.find(m => m.name === "family"),
+      undefined
+    )
+  })
 
-	test('a dependency root WITHOUT modules/ is still exactly one module (the shape every existing consumer relies on)', () => {
-		const { root } = workspace({ compile: false });
-		const pkgPath = path.join(root, 'package.json');
-		const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-		pkg.dependencies = { ...pkg.dependencies, '@acme/solo': '0.0.1' };
-		fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, '\t') + '\n');
-		const dir = path.join(root, 'node_modules', '@acme', 'solo');
-		fs.mkdirSync(path.join(dir, 'collections'), { recursive: true });
-		fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'solo', version: '0.0.1', dreamteamer: { description: 'one module' } }));
-		fs.writeFileSync(path.join(dir, 'collections', 'solo.collection.yaml'), dump({ name: 'solo', ...simpleCollection() }));
-		const { modules } = discoverModules(root, pkg);
-		const solo = modules.find((m) => m.name === 'solo');
-		assert.ok(solo && solo.channel === 'npm' && solo.root === dir);
-	});
+  test("a dependency root WITHOUT modules/ is still exactly one module (the shape every existing consumer relies on)", () => {
+    const { root } = workspace({ compile: false })
+    const pkgPath = path.join(root, "package.json")
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"))
+    pkg.dependencies = { ...pkg.dependencies, "@acme/solo": "0.0.1" }
+    fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, "\t") + "\n")
+    const dir = path.join(root, "node_modules", "@acme", "solo")
+    fs.mkdirSync(path.join(dir, "collections"), { recursive: true })
+    fs.writeFileSync(
+      path.join(dir, "package.json"),
+      JSON.stringify({ name: "solo", version: "0.0.1", dreamteamer: { description: "one module" } })
+    )
+    fs.writeFileSync(
+      path.join(dir, "collections", "solo.collection.yaml"),
+      dump({ name: "solo", ...simpleCollection() })
+    )
+    const { modules } = discoverModules(root, pkg)
+    const solo = modules.find(m => m.name === "solo")
+    assert.ok(solo && solo.channel === "npm" && solo.root === dir)
+  })
 
-	test('an INLINE module never unpacks — a modules/ folder inside modules/<m> is still the unknown-folder error', () => {
-		const { root, ws } = workspace({ compile: false });
-		writeModule(root, 'inline', { collections: { inline: simpleCollection() } });
-		fs.mkdirSync(path.join(root, 'modules', 'inline', 'modules', 'nested'), { recursive: true });
-		fs.writeFileSync(path.join(root, 'modules', 'inline', 'modules', 'nested', 'package.json'), JSON.stringify({ name: 'nested', dreamteamer: {} }));
-		const { modules } = discoverModules(root, ws.pkg);
-		assert.equal(modules.find((m) => m.name === 'nested'), undefined, 'inline modules must not bundle');
-		const err = compileError(ws);
-		assert.ok(err && /modules/.test(err), `expected the unknown-folder refusal, got: ${err}`);
-	});
-});
+  test("an INLINE module never unpacks — a modules/ folder inside modules/<m> is still the unknown-folder error", () => {
+    const { root, ws } = workspace({ compile: false })
+    writeModule(root, "inline", { collections: { inline: simpleCollection() } })
+    fs.mkdirSync(path.join(root, "modules", "inline", "modules", "nested"), { recursive: true })
+    fs.writeFileSync(
+      path.join(root, "modules", "inline", "modules", "nested", "package.json"),
+      JSON.stringify({ name: "nested", dreamteamer: {} })
+    )
+    const { modules } = discoverModules(root, ws.pkg)
+    assert.equal(
+      modules.find(m => m.name === "nested"),
+      undefined,
+      "inline modules must not bundle"
+    )
+    const err = compileError(ws)
+    assert.ok(err && /modules/.test(err), `expected the unknown-folder refusal, got: ${err}`)
+  })
+})
 
-describe('a modules/<id> dreamteamer.disable entry drops a whole module', () => {
-	test('the disabled module is neither discovered nor compiled, and the entry counts as matched', () => {
-		const ws = withNpmBundle(['crates', 'lanes'], ['modules/lanes']);
-		const { modules, disabledModules } = discoverModules(ws.root, ws.pkg);
-		assert.deepEqual(modules.map((m) => m.name).filter((n) => n === 'lanes'), []);
-		assert.deepEqual(disabledModules, ['modules/lanes']);
-		const { code, warnings } = compileQuietly(ws);
-		assert.equal(code, 0);
-		const compiled = compiledCollections(ws.root);
-		assert.ok(compiled.includes('crates') && !compiled.includes('lanes'), compiled.join(', '));
-		assert.ok(!warnings.some((w) => w.includes('"modules/lanes" matched nothing')), warnings.join('\n'));
-	});
+describe("a modules/<id> dreamteamer.disable entry drops a whole module", () => {
+  test("the disabled module is neither discovered nor compiled, and the entry counts as matched", () => {
+    const ws = withNpmBundle(["crates", "lanes"], ["modules/lanes"])
+    const { modules, disabledModules } = discoverModules(ws.root, ws.pkg)
+    assert.deepEqual(
+      modules.map(m => m.name).filter(n => n === "lanes"),
+      []
+    )
+    assert.deepEqual(disabledModules, ["modules/lanes"])
+    const { code, warnings } = compileQuietly(ws)
+    assert.equal(code, 0)
+    const compiled = compiledCollections(ws.root)
+    assert.ok(compiled.includes("crates") && !compiled.includes("lanes"), compiled.join(", "))
+    assert.ok(!warnings.some(w => w.includes('"modules/lanes" matched nothing')), warnings.join("\n"))
+  })
 
-	test('a modules/<id> entry that names no module still warns, exactly like an entity entry that matches nothing', () => {
-		const ws = withNpmBundle(['crates'], ['modules/ghost']);
-		const { warnings } = compileQuietly(ws);
-		assert.ok(warnings.some((w) => w.includes('dreamteamer.disable entry "modules/ghost" matched nothing')), warnings.join('\n'));
-	});
+  test("a modules/<id> entry that names no module still warns, exactly like an entity entry that matches nothing", () => {
+    const ws = withNpmBundle(["crates"], ["modules/ghost"])
+    const { warnings } = compileQuietly(ws)
+    assert.ok(
+      warnings.some(w => w.includes('dreamteamer.disable entry "modules/ghost" matched nothing')),
+      warnings.join("\n")
+    )
+  })
 
-	test('disabling a module another one depends on fails loudly, naming what is present', () => {
-		const ws = withNpmBundle(['crates', 'lanes'], ['modules/crates']);
-		const lanesPkg = path.join(ws.root, 'node_modules', '@acme', 'pack', 'modules', 'lanes', 'package.json');
-		const p = JSON.parse(fs.readFileSync(lanesPkg, 'utf8'));
-		p.dreamteamer.dependencies = ['crates'];
-		fs.writeFileSync(lanesPkg, JSON.stringify(p));
-		const err = compileError(ws);
-		assert.ok(err && /depends on "crates", which is not installed/.test(err), err);
-		assert.ok(err.includes('\n  run: dt install crates'), `the refusal names the install: ${err}`);
-	});
-});
+  test("disabling a module another one depends on fails loudly, naming what is present", () => {
+    const ws = withNpmBundle(["crates", "lanes"], ["modules/crates"])
+    const lanesPkg = path.join(ws.root, "node_modules", "@acme", "pack", "modules", "lanes", "package.json")
+    const p = JSON.parse(fs.readFileSync(lanesPkg, "utf8"))
+    p.dreamteamer.dependencies = ["crates"]
+    fs.writeFileSync(lanesPkg, JSON.stringify(p))
+    const err = compileError(ws)
+    assert.ok(err && /depends on "crates", which is not installed/.test(err), err)
+    assert.ok(err.includes("\n  run: dt install crates"), `the refusal names the install: ${err}`)
+  })
+})
 
 // An npm-installed module's data/ is read by nothing — no root points into node_modules/, because
 // records there could never be committed. It used to compile ✔ and the shipped records silently never
 // appeared. Invented package and record names only.
-describe('an npm module shipping data/ is warned about, naming the package and the folder', () => {
-	function withShippedData({ ignore } = {}) {
-		const { root, ws } = workspace({ compile: false });
-		const pkgPath = path.join(root, 'package.json');
-		const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-		pkg.dependencies = { ...pkg.dependencies, '@acme/leads': '0.0.1' };
-		fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, '\t') + '\n');
-		ws.pkg = pkg;
-		const dir = path.join(root, 'node_modules', '@acme', 'leads');
-		fs.mkdirSync(path.join(dir, 'collections'), { recursive: true });
-		fs.mkdirSync(path.join(dir, 'data', 'leads'), { recursive: true });
-		fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: '@acme/leads', version: '0.0.1', dreamteamer: { description: 'leads', ...(ignore ? { ignore } : {}) } }));
-		fs.writeFileSync(path.join(dir, 'collections', 'leads.collection.yaml'), dump({ name: 'leads', ...simpleCollection() }));
-		fs.writeFileSync(path.join(dir, 'data', 'leads', 'shipped-lead.lead.md'), '---\nname: Shipped lead\n---\n');
-		return ws;
-	}
+describe("an npm module shipping data/ is warned about, naming the package and the folder", () => {
+  function withShippedData({ ignore } = {}) {
+    const { root, ws } = workspace({ compile: false })
+    const pkgPath = path.join(root, "package.json")
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"))
+    pkg.dependencies = { ...pkg.dependencies, "@acme/leads": "0.0.1" }
+    fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, "\t") + "\n")
+    ws.pkg = pkg
+    const dir = path.join(root, "node_modules", "@acme", "leads")
+    fs.mkdirSync(path.join(dir, "collections"), { recursive: true })
+    fs.mkdirSync(path.join(dir, "data", "leads"), { recursive: true })
+    fs.writeFileSync(
+      path.join(dir, "package.json"),
+      JSON.stringify({
+        name: "@acme/leads",
+        version: "0.0.1",
+        dreamteamer: { description: "leads", ...(ignore ? { ignore } : {}) },
+      })
+    )
+    fs.writeFileSync(
+      path.join(dir, "collections", "leads.collection.yaml"),
+      dump({ name: "leads", ...simpleCollection() })
+    )
+    fs.writeFileSync(path.join(dir, "data", "leads", "shipped-lead.lead.md"), "---\nname: Shipped lead\n---\n")
+    return ws
+  }
 
-	test('compile warns, naming the package and its data folder — and still compiles', () => {
-		const { code, warnings } = compileQuietly(withShippedData());
-		assert.equal(code, 0);
-		const hit = warnings.find((w) => w.includes('nothing reads it'));
-		assert.ok(hit, `no warning about the shipped data/ — got:\n${warnings.join('\n')}`);
-		assert.match(hit, /module @acme\/leads ships node_modules\/@acme\/leads\/data\/ and nothing reads it/);
-		assert.match(hit, /"ignore": \["data"\]/, 'the warning names the opt-out for a module whose own script reads the folder');
-	});
+  test("compile warns, naming the package and its data folder — and still compiles", () => {
+    const { code, warnings } = compileQuietly(withShippedData())
+    assert.equal(code, 0)
+    const hit = warnings.find(w => w.includes("nothing reads it"))
+    assert.ok(hit, `no warning about the shipped data/ — got:\n${warnings.join("\n")}`)
+    assert.match(hit, /module @acme\/leads ships node_modules\/@acme\/leads\/data\/ and nothing reads it/)
+    assert.match(
+      hit,
+      /"ignore": \["data"\]/,
+      "the warning names the opt-out for a module whose own script reads the folder"
+    )
+  })
 
-	test('a module declaring "ignore": ["data"] — its own script reads the folder — is not warned about', () => {
-		const { warnings } = compileQuietly(withShippedData({ ignore: ['data'] }));
-		assert.equal(warnings.find((w) => w.includes('nothing reads it')), undefined);
-	});
-});
+  test('a module declaring "ignore": ["data"] — its own script reads the folder — is not warned about', () => {
+    const { warnings } = compileQuietly(withShippedData({ ignore: ["data"] }))
+    assert.equal(
+      warnings.find(w => w.includes("nothing reads it")),
+      undefined
+    )
+  })
+})
 
 // rnd/tests/dreamteamer/preset-manifest — CR-dt-008: a MODULE PRESET is a package whose
 // `dreamteamer.preset` maps member module names to exact versions. It ships no sources; compile
@@ -161,83 +210,124 @@ describe('an npm module shipping data/ is warned about, naming the package and t
 /** The workspace with an npm dependency `@acme/set` whose `dreamteamer` block is `block`, plus the
  *  named empty folders at its root. */
 function withNpmPreset(block, folders = []) {
-	const { root } = workspace({ compile: false });
-	const pkgPath = path.join(root, 'package.json');
-	const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-	pkg.dependencies = { ...pkg.dependencies, '@acme/set': '1.0.0' };
-	fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, '\t') + '\n');
-	const dir = path.join(root, 'node_modules', '@acme', 'set');
-	fs.mkdirSync(dir, { recursive: true });
-	fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: '@acme/set', version: '1.0.0', dreamteamer: block }, null, '\t'));
-	for (const f of folders) fs.mkdirSync(path.join(dir, f), { recursive: true });
-	return { root, pkg };
+  const { root } = workspace({ compile: false })
+  const pkgPath = path.join(root, "package.json")
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"))
+  pkg.dependencies = { ...pkg.dependencies, "@acme/set": "1.0.0" }
+  fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, "\t") + "\n")
+  const dir = path.join(root, "node_modules", "@acme", "set")
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(
+    path.join(dir, "package.json"),
+    JSON.stringify({ name: "@acme/set", version: "1.0.0", dreamteamer: block }, null, "\t")
+  )
+  for (const f of folders) fs.mkdirSync(path.join(dir, f), { recursive: true })
+  return { root, pkg }
 }
 
-describe('a module preset: dreamteamer.preset and dreamteamer.nav in a package manifest', () => {
-	test('(a) a preset of an absent member compiles, warns once naming it, and is not "contributed no recognised sources"', () => {
-		const { code, warnings } = compileQuietly(withNpmPreset({ preset: { '@acme/a': '1.0.0' } }));
-		assert.equal(code, 0);
-		const hits = warnings.filter((w) => w.includes('⚠ module preset set names @acme/a 1.0.0, which is not installed — dt install @acme/a'));
-		assert.equal(hits.length, 1, warnings.join('\n'));
-		assert.ok(!warnings.some((w) => w.includes('contributed no recognised sources')), warnings.join('\n'));
-	});
+describe("a module preset: dreamteamer.preset and dreamteamer.nav in a package manifest", () => {
+  test('(a) a preset of an absent member compiles, warns once naming it, and is not "contributed no recognised sources"', () => {
+    const { code, warnings } = compileQuietly(withNpmPreset({ preset: { "@acme/a": "1.0.0" } }))
+    assert.equal(code, 0)
+    const hits = warnings.filter(w =>
+      w.includes("⚠ module preset set names @acme/a 1.0.0, which is not installed — dt install @acme/a")
+    )
+    assert.equal(hits.length, 1, warnings.join("\n"))
+    assert.ok(!warnings.some(w => w.includes("contributed no recognised sources")), warnings.join("\n"))
+  })
 
-	test('(b) a preset shipping a kind folder is refused', () => {
-		const err = compileError(withNpmPreset({ preset: { '@acme/a': '1.0.0' } }, ['collections']));
-		assert.ok(err && err.includes('module "@acme/set": a module preset lists modules; it ships none (found collections/)'), err);
-	});
+  test("(b) a preset shipping a kind folder is refused", () => {
+    const err = compileError(withNpmPreset({ preset: { "@acme/a": "1.0.0" } }, ["collections"]))
+    assert.ok(
+      err && err.includes('module "@acme/set": a module preset lists modules; it ships none (found collections/)'),
+      err
+    )
+  })
 
-	test('(c) a preset shipping modules/ is refused, never unpacked as a bundle', () => {
-		const err = compileError(withNpmPreset({ preset: { '@acme/a': '1.0.0' } }, ['modules']));
-		assert.ok(err && err.includes('found modules/'), err);
-	});
+  test("(c) a preset shipping modules/ is refused, never unpacked as a bundle", () => {
+    const err = compileError(withNpmPreset({ preset: { "@acme/a": "1.0.0" } }, ["modules"]))
+    assert.ok(err && err.includes("found modules/"), err)
+  })
 
-	test('(d) a member version that is a range is refused', () => {
-		const err = compileError(withNpmPreset({ preset: { '@acme/a': '^1' } }));
-		assert.ok(err && err.includes('module "@acme/set": dreamteamer.preset["@acme/a"] must be an exact version (got "^1")'), err);
-	});
+  test("(d) a member version that is a range is refused", () => {
+    const err = compileError(withNpmPreset({ preset: { "@acme/a": "^1" } }))
+    assert.ok(
+      err && err.includes('module "@acme/set": dreamteamer.preset["@acme/a"] must be an exact version (got "^1")'),
+      err
+    )
+  })
 
-	test('(e) a nav path outside the package is refused', () => {
-		for (const nav of ['../x.yaml', '/x.yaml']) {
-			const err = compileError(withNpmPreset({ preset: { '@acme/a': '1.0.0' }, nav }));
-			assert.ok(err && err.includes(`dreamteamer.nav must be a relative path inside the package (got "${nav}")`), `${nav}: ${err}`);
-		}
-	});
+  test("(e) a nav path outside the package is refused", () => {
+    for (const nav of ["../x.yaml", "/x.yaml"]) {
+      const err = compileError(withNpmPreset({ preset: { "@acme/a": "1.0.0" }, nav }))
+      assert.ok(
+        err && err.includes(`dreamteamer.nav must be a relative path inside the package (got "${nav}")`),
+        `${nav}: ${err}`
+      )
+    }
+  })
 
-	test('(f) a package carrying provides still compiles', () => {
-		const ws = withNpmPreset({ provides: ['@acme/a'] }, ['collections']);
-		fs.writeFileSync(path.join(ws.root, 'node_modules', '@acme', 'set', 'collections', 'sets.collection.yaml'), dump({ name: 'sets', ...simpleCollection() }));
-		const { code } = compileQuietly(ws);
-		assert.equal(code, 0);
-	});
+  test("(f) a package carrying provides still compiles", () => {
+    const ws = withNpmPreset({ provides: ["@acme/a"] }, ["collections"])
+    fs.writeFileSync(
+      path.join(ws.root, "node_modules", "@acme", "set", "collections", "sets.collection.yaml"),
+      dump({ name: "sets", ...simpleCollection() })
+    )
+    const { code } = compileQuietly(ws)
+    assert.equal(code, 0)
+  })
 
-	test('(g) the workspace\'s own block may not carry preset or nav', () => {
-		const { ws } = workspace({ compile: false, pkg: { preset: { '@acme/a': '1.0.0' } } });
-		const err = compileError(ws);
-		assert.ok(err && err.includes('package.json: dreamteamer.preset and dreamteamer.nav belong to a module package, not the workspace'), err);
-	});
-});
+  test("(g) the workspace's own block may not carry preset or nav", () => {
+    const { ws } = workspace({ compile: false, pkg: { preset: { "@acme/a": "1.0.0" } } })
+    const err = compileError(ws)
+    assert.ok(
+      err &&
+        err.includes(
+          "package.json: dreamteamer.preset and dreamteamer.nav belong to a module package, not the workspace"
+        ),
+      err
+    )
+  })
+})
 
 // rnd/tests/dreamteamer/preset-reference-rights — CR-dt-008: a module that depends on a module preset
 // may reference the collections of the preset's members, as if it depended on each member.
-describe('reference rights reach through a module preset', () => {
-	function withPresetChain({ depend }) {
-		const { ws, root } = workspace({ compile: false });
-		writeModule(root, 'alpha', { description: 'Alpha.', collections: { alphas: simpleCollection() } });
-		const packRoot = path.join(root, 'modules', 'pack');
-		fs.mkdirSync(packRoot, { recursive: true });
-		fs.writeFileSync(path.join(packRoot, 'package.json'), JSON.stringify({ name: 'pack', private: true, version: '1.0.0', dreamteamer: { description: 'A set.', preset: { alpha: '1.0.0' } } }, null, '\t') + '\n');
-		writeModule(root, 'via', { description: 'Via.', ...(depend ? { dependencies: ['pack'] } : {}), collections: { vias: simpleCollection({ fields: { name: { type: 'string', required: true }, alpha: { type: 'alphas' } } }) } });
-		return ws;
-	}
+describe("reference rights reach through a module preset", () => {
+  function withPresetChain({ depend }) {
+    const { ws, root } = workspace({ compile: false })
+    writeModule(root, "alpha", { description: "Alpha.", collections: { alphas: simpleCollection() } })
+    const packRoot = path.join(root, "modules", "pack")
+    fs.mkdirSync(packRoot, { recursive: true })
+    fs.writeFileSync(
+      path.join(packRoot, "package.json"),
+      JSON.stringify(
+        {
+          name: "pack",
+          private: true,
+          version: "1.0.0",
+          dreamteamer: { description: "A set.", preset: { alpha: "1.0.0" } },
+        },
+        null,
+        "\t"
+      ) + "\n"
+    )
+    writeModule(root, "via", {
+      description: "Via.",
+      ...(depend ? { dependencies: ["pack"] } : {}),
+      collections: {
+        vias: simpleCollection({ fields: { name: { type: "string", required: true }, alpha: { type: "alphas" } } }),
+      },
+    })
+    return ws
+  }
 
-	test('a module depending on a preset references a member\'s collection: compiles', () => {
-		const { code } = compileQuietly(withPresetChain({ depend: true }));
-		assert.equal(code, 0);
-	});
+  test("a module depending on a preset references a member's collection: compiles", () => {
+    const { code } = compileQuietly(withPresetChain({ depend: true }))
+    assert.equal(code, 0)
+  })
 
-	test('the same module without the dependency: refused, neither owns nor declares', () => {
-		const err = compileError(withPresetChain({ depend: false }));
-		assert.ok(err && err.includes('neither owns nor declares'), err);
-	});
-});
+  test("the same module without the dependency: refused, neither owns nor declares", () => {
+    const err = compileError(withPresetChain({ depend: false }))
+    assert.ok(err && err.includes("neither owns nor declares"), err)
+  })
+})

@@ -1,7 +1,7 @@
 # The first meta-descriptor written in descriptor format v2: a mixin is itself a partial v2
 # descriptor, so its own shape is stated in the vocabulary it contributes.
 name: mixins
-record_title: '{{ name }}'
+record_title: "{{ name }}"
 description: A partial descriptor merged into every collection that lists it in `mixins` — shared fields, and where it says so storage, id and display.
 use_when: >-
   several collections in one module need the same fields (provenance, a dated document's id shape) —
@@ -11,8 +11,8 @@ storage:
   path: mixins
   format: yaml
 ids:
-  from: '{{ name | slug }}'
-  pattern: '^[a-z0-9-]+$'
+  from: "{{ name | slug }}"
+  pattern: "^[a-z0-9-]+$"
 fields:
   name:
     type: string

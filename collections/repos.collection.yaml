@@ -1,5 +1,5 @@
 name: repos
-record_title: '{{ name }}'
+record_title: "{{ name }}"
 description: A git repository this workspace knows about — where it lives and how a working tree is materialized on demand.
 use_when: >-
   a repository this workspace depends on is named — its own engine or extension clone, a client's
@@ -16,8 +16,8 @@ storage:
   path: data/repos
   format: yaml
 ids:
-  from: '{{ name | slug }}'
-  pattern: '^[a-z0-9-]+$'
+  from: "{{ name | slug }}"
+  pattern: "^[a-z0-9-]+$"
 fields:
   name:
     type: string
@@ -37,7 +37,7 @@ fields:
     description: Branch or tag to check out.
   identity:
     type: string
-    description: 'Opaque path segment grouping clones by the account that owns them: <repos-path>/<identity>/<name>.'
+    description: "Opaque path segment grouping clones by the account that owns them: <repos-path>/<identity>/<name>."
   path:
     type: string
     description: >-

@@ -1,5 +1,5 @@
 name: commands
-record_title: '{{ name }}'
+record_title: "{{ name }}"
 description: A procedure the operator starts by typing its name after a slash — the entry point, never the procedure itself.
 use_when: >-
   a job should start on one typed word, or a chain of jobs should be gated on a record's fields —
@@ -10,7 +10,7 @@ storage:
   path: commands
   format: md
 ids:
-  from: '{{ name | slug }}'
+  from: "{{ name | slug }}"
 fields:
   name:
     type: string

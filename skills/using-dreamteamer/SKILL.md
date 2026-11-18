@@ -21,13 +21,13 @@ unsure which skill owns the job in front of you.
 
 ## the contract
 
-| concern | where | rule |
-|---|---|---|
-| schemas (read) | `.dreamteamer/collections/*.collection.yaml` | the single source of truth for what exists and its shape. **never edit under `.dreamteamer/`** — generated and gitignored |
-| provenance | `.dreamteamer/manifest.yaml` | which module shipped which entry |
-| sources (write) | `modules/<module>/<kind>/` — **including the workspace's own**, the `dreamteamer.workspace_module` named in `package.json` | a source folder at the workspace ROOT is a compile error (whenever `workspace_module` is set — every `dt init` workspace); same-name collisions across modules too. after ANY source change: `dt compile` |
-| instructions (write) | `DREAMTEAMER.md` at the root | compiled into `CLAUDE.md`, `AGENTS.md` and `GEMINI.md` below the generated block; those three are gitignored, so a rule written into them reaches no clone |
-| records (write) | `data/…`, per each descriptor's `storage.path` | the CLI writes them validated; hand-edits are legal and owe `dt check` |
+| concern              | where                                                                                                                      | rule                                                                                                                                                                                                      |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| schemas (read)       | `.dreamteamer/collections/*.collection.yaml`                                                                               | the single source of truth for what exists and its shape. **never edit under `.dreamteamer/`** — generated and gitignored                                                                                 |
+| provenance           | `.dreamteamer/manifest.yaml`                                                                                               | which module shipped which entry                                                                                                                                                                          |
+| sources (write)      | `modules/<module>/<kind>/` — **including the workspace's own**, the `dreamteamer.workspace_module` named in `package.json` | a source folder at the workspace ROOT is a compile error (whenever `workspace_module` is set — every `dt init` workspace); same-name collisions across modules too. after ANY source change: `dt compile` |
+| instructions (write) | `DREAMTEAMER.md` at the root                                                                                               | compiled into `CLAUDE.md`, `AGENTS.md` and `GEMINI.md` below the generated block; those three are gitignored, so a rule written into them reaches no clone                                                |
+| records (write)      | `data/…`, per each descriptor's `storage.path`                                                                             | the CLI writes them validated; hand-edits are legal and owe `dt check`                                                                                                                                    |
 
 - a record is a `<id>.<suffix>.<ext>` file (or a folder, for folder-shape collections). **the id
   is the path** inside the collection folder minus suffix and extension — nested folders join in:
@@ -79,7 +79,7 @@ dispatch, so it cannot drift):
 
 don't learn syntax from prose, this skill included: prose drifts, and `help` ships in
 the same file as the dispatch it documents. run it once before your first write of a session.
-what prose adds is judgment — *when* a verb is the right move, and the guarantees you can lean
+what prose adds is judgment — _when_ a verb is the right move, and the guarantees you can lean
 on: **validation is hard** (unknown fields included; an invalid write is rejected before disk
 with no partial state), and **a write does not commit** — `dt commit` publishes, scoped
 (`references/records.md`).
@@ -139,24 +139,24 @@ Act one is **working with data** — the records themselves. Act two is **modeli
 — changing what it keeps (collections, fields) or what it does (skills, commands, agents, views).
 Load by the map; nothing here is loaded "just in case".
 
-| the job | load |
-|---|---|
-| a brand-new or empty workspace, dreamteamer over an existing pile of files | `references/getting-started.md` |
-| "help me set this up", "finish setup", "add meetings", "install a module", "connect my account / calendar", "something stopped working", "what works here?", "add / connect / repair <capability>" — `dt install`, `dt setup`, `dt status`: a module's setup unit, inputs and consent, an honest readiness report | `references/setup.md` |
-| read, create, update, rename, delete, commit — or UNDO — a record | `references/records.md` |
-| "what changed while I was away", what this turn changed, the record report | `references/changes.md` |
-| the workspace seems unable to do something — a new kind of thing, a missing capability, "don't we already have this?" | `references/before-you-build.md` (look first); a new model then continues `references/data-modeling.md` (decide) → `references/collections.md` (write it) |
-| a collection or field, mechanically — the descriptor and its field vocabulary, ids, `display`, the system and field verbs, mixins and overlays, the `package.json` block, a compile or check message | `references/collections.md` |
-| "keep a company's meetings in the company's folder" — records stored beside the record they belong to, a `placed … but` check report, `dt relocate` | `references/collections.md` (declaring it) · `references/records.md` (working with it) |
-| knowledge a session should find on its own | `references/skills.md` |
-| "let me type one word and have this done" | `references/commands.md` |
-| "which command applies to this record?" — a binding, a gate | `references/commands.md` |
-| a job needing a fresh context and its own tools | `references/agents.md` |
-| a route, a nav entry, a board / calendar / map over records | `references/ui-views.md` |
-| a rendering or editing behaviour nothing registered has | `references/ui-components.md` |
-| an optional tool — behaviour proofs, worktrees, a REST server, an exporter, a new harness — and whether to write one | `references/extensions.md` |
-| writing, testing and publishing a module of your own — `dt add modules --extension --package`, a setup unit, `dreamteamer/testing`, `dt check modules/<id> --alone` | `references/writing-a-module.md` |
-| other agent sessions are running on this machine — finding them, messaging one, coordinating several, and what may not cross between them | `references/sessions.md` |
+| the job                                                                                                                                                                                                                                                                                                           | load                                                                                                                                                      |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| a brand-new or empty workspace, dreamteamer over an existing pile of files                                                                                                                                                                                                                                        | `references/getting-started.md`                                                                                                                           |
+| "help me set this up", "finish setup", "add meetings", "install a module", "connect my account / calendar", "something stopped working", "what works here?", "add / connect / repair <capability>" — `dt install`, `dt setup`, `dt status`: a module's setup unit, inputs and consent, an honest readiness report | `references/setup.md`                                                                                                                                     |
+| read, create, update, rename, delete, commit — or UNDO — a record                                                                                                                                                                                                                                                 | `references/records.md`                                                                                                                                   |
+| "what changed while I was away", what this turn changed, the record report                                                                                                                                                                                                                                        | `references/changes.md`                                                                                                                                   |
+| the workspace seems unable to do something — a new kind of thing, a missing capability, "don't we already have this?"                                                                                                                                                                                             | `references/before-you-build.md` (look first); a new model then continues `references/data-modeling.md` (decide) → `references/collections.md` (write it) |
+| a collection or field, mechanically — the descriptor and its field vocabulary, ids, `display`, the system and field verbs, mixins and overlays, the `package.json` block, a compile or check message                                                                                                              | `references/collections.md`                                                                                                                               |
+| "keep a company's meetings in the company's folder" — records stored beside the record they belong to, a `placed … but` check report, `dt relocate`                                                                                                                                                               | `references/collections.md` (declaring it) · `references/records.md` (working with it)                                                                    |
+| knowledge a session should find on its own                                                                                                                                                                                                                                                                        | `references/skills.md`                                                                                                                                    |
+| "let me type one word and have this done"                                                                                                                                                                                                                                                                         | `references/commands.md`                                                                                                                                  |
+| "which command applies to this record?" — a binding, a gate                                                                                                                                                                                                                                                       | `references/commands.md`                                                                                                                                  |
+| a job needing a fresh context and its own tools                                                                                                                                                                                                                                                                   | `references/agents.md`                                                                                                                                    |
+| a route, a nav entry, a board / calendar / map over records                                                                                                                                                                                                                                                       | `references/ui-views.md`                                                                                                                                  |
+| a rendering or editing behaviour nothing registered has                                                                                                                                                                                                                                                           | `references/ui-components.md`                                                                                                                             |
+| an optional tool — behaviour proofs, worktrees, a REST server, an exporter, a new harness — and whether to write one                                                                                                                                                                                              | `references/extensions.md`                                                                                                                                |
+| writing, testing and publishing a module of your own — `dt add modules --extension --package`, a setup unit, `dreamteamer/testing`, `dt check modules/<id> --alone`                                                                                                                                               | `references/writing-a-module.md`                                                                                                                          |
+| other agent sessions are running on this machine — finding them, messaging one, coordinating several, and what may not cross between them                                                                                                                                                                         | `references/sessions.md`                                                                                                                                  |
 
 three act-two tie-breakers, because they are the ones that go wrong:
 
@@ -226,7 +226,7 @@ unmeasured (where a number genuinely cannot be known before the run, the plan sa
    those root files are gitignored, so nothing written in them reaches a clone. if you found the
    thing to change there, you are in the wrong file.
 7. **a system entity is a SOURCE, written two ways**: the system and field verbs, which write it
-   *through* a compile gate so an uncompilable source can never land — or an edit to the module
+   _through_ a compile gate so an uncompilable source can never land — or an edit to the module
    file, then `dt compile`. one shipped by an installed package is refused, naming the move
    (disable it, or overlay it).
 8. **never duplicate a procedure across records.** a command body restating a skill, an agent
@@ -242,17 +242,17 @@ unmeasured (where a number genuinely cannot be known before the run, the plan sa
 
 ## common mistakes
 
-| mistake | reality |
-|---|---|
-| editing under `.dreamteamer/` or `.claude/` | generated — the change vanishes next compile; find the module source |
-| changing a source and not compiling | the CLI, `check` and every harness still read the stale runtime |
-| hand-writing a record the CLI could add | skips validation, id generation and defaults |
-| bare refs (`ada`, `data/contacts/x.contact.md`) | refs are `<collection>/<id>`; anything else fails check |
-| assuming a write was committed | it was not (unless `auto_commit` is on) — `dt status` shows pending |
-| editing `CLAUDE.md` for a workspace rule | it is compiled output — the rule goes in `DREAMTEAMER.md` |
-| learning flags from prose or memory | `dt help` is the surface; prose carries judgment only |
-| a new module folder compile ignores | its `package.json` needs a `dreamteamer` key |
-| `git add -A` in a shared tree | steals another session's uncommitted work, invisibly |
-| an absolute machine path in a record | wrong on every other machine — `${env:NAME}` + a declared var |
-| picking an entity by what is easiest to write | pick by how it should be TRIGGERED — that is what the choice encodes |
-| telling the operator a new source works now | it works in their **next** session |
+| mistake                                         | reality                                                              |
+| ----------------------------------------------- | -------------------------------------------------------------------- |
+| editing under `.dreamteamer/` or `.claude/`     | generated — the change vanishes next compile; find the module source |
+| changing a source and not compiling             | the CLI, `check` and every harness still read the stale runtime      |
+| hand-writing a record the CLI could add         | skips validation, id generation and defaults                         |
+| bare refs (`ada`, `data/contacts/x.contact.md`) | refs are `<collection>/<id>`; anything else fails check              |
+| assuming a write was committed                  | it was not (unless `auto_commit` is on) — `dt status` shows pending  |
+| editing `CLAUDE.md` for a workspace rule        | it is compiled output — the rule goes in `DREAMTEAMER.md`            |
+| learning flags from prose or memory             | `dt help` is the surface; prose carries judgment only                |
+| a new module folder compile ignores             | its `package.json` needs a `dreamteamer` key                         |
+| `git add -A` in a shared tree                   | steals another session's uncommitted work, invisibly                 |
+| an absolute machine path in a record            | wrong on every other machine — `${env:NAME}` + a declared var        |
+| picking an entity by what is easiest to write   | pick by how it should be TRIGGERED — that is what the choice encodes |
+| telling the operator a new source works now     | it works in their **next** session                                   |

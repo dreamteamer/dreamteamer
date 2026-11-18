@@ -29,7 +29,7 @@ working), `collections` one count row per collection and layer.
 
 before replying after any write (the record report); the operator asks what changed or what they
 missed; you are reconciling after a batch of edits or a bulk rewrite; you want to know what a range
-of commits did to the *data*. **not for** ordinary "show me the diff" questions — plain `git log` /
+of commits did to the _data_. **not for** ordinary "show me the diff" questions — plain `git log` /
 `git diff` is better — and not for reading or writing individual records (`records.md`).
 
 ## the mechanism — enough to trust its edges
@@ -63,12 +63,12 @@ rather than run over it.
 
 ## common mistakes
 
-| mistake | reality |
-|---|---|
-| writing the record report from memory of your `✔` lines | `dt changes` measures it; memory misses a script's writes and a hand-edit |
-| reporting every row `dt changes` prints | the uncommitted state is shared with other sessions — keep only your own writes |
-| an empty report when nothing was written | nothing written, nothing appended |
-| expecting bare `dt changes` to show the last commit | since 0.42.0 it is the uncommitted state; `--since HEAD~1` adds the last commit |
-| hand-rolling the diff + path mapping | `dt changes` is the mechanism; a hand-roll misses folder-shape records, layers, per-repo HEADs and the rename split |
-| writing an events file to "remember" what changed | history is the record; anything you write can drift from it |
-| reading the output as a to-do list | it says what changed, not what it means — the judgment is yours |
+| mistake                                                 | reality                                                                                                             |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| writing the record report from memory of your `✔` lines | `dt changes` measures it; memory misses a script's writes and a hand-edit                                           |
+| reporting every row `dt changes` prints                 | the uncommitted state is shared with other sessions — keep only your own writes                                     |
+| an empty report when nothing was written                | nothing written, nothing appended                                                                                   |
+| expecting bare `dt changes` to show the last commit     | since 0.42.0 it is the uncommitted state; `--since HEAD~1` adds the last commit                                     |
+| hand-rolling the diff + path mapping                    | `dt changes` is the mechanism; a hand-roll misses folder-shape records, layers, per-repo HEADs and the rename split |
+| writing an events file to "remember" what changed       | history is the record; anything you write can drift from it                                                         |
+| reading the output as a to-do list                      | it says what changed, not what it means — the judgment is yours                                                     |

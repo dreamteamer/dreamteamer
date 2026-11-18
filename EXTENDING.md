@@ -8,14 +8,14 @@ You don't have to do any of this by hand. Asking your agent to "create a module 
 
 A module is one npm package whose `package.json` carries a `dreamteamer` block. It ships a domain as plain files, one folder per kind:
 
-| folder | what it holds |
-|---|---|
-| `collections/` | the kinds of records, with their fields and relations |
-| `skills/` | procedures an agent loads on its own when the situation matches |
-| `commands/` | procedures you start by name (`command-bindings/` ties one to a record's state) |
-| `agents/` | jobs that run in a context of their own |
-| `ui-views/` | boards, lists and other ways to look at a collection |
-| `mixins/` | fields shared by several collections |
+| folder         | what it holds                                                                   |
+| -------------- | ------------------------------------------------------------------------------- |
+| `collections/` | the kinds of records, with their fields and relations                           |
+| `skills/`      | procedures an agent loads on its own when the situation matches                 |
+| `commands/`    | procedures you start by name (`command-bindings/` ties one to a record's state) |
+| `agents/`      | jobs that run in a context of their own                                         |
+| `ui-views/`    | boards, lists and other ways to look at a collection                            |
+| `mixins/`      | fields shared by several collections                                            |
 
 Writing one needs the engine and nothing else. [`@dreamteamer/tasks`](https://github.com/dreamteamer/dreamteamer-modules/tree/main/modules/tasks) is a small real one to read.
 
@@ -70,25 +70,49 @@ If your module needs something per machine, declare a **setup unit**. This is th
 
 ```js
 // modules/northwind/src/extension.js
-const KEY = 'NORTHWIND_TOKEN';
+const KEY = "NORTHWIND_TOKEN"
 
 function inspect(ctx) {
-  return { checks: [{ id: 'northwind.token', status: ctx.env[KEY] ? 'configured' : 'missing', title: KEY, fix: 'dt setup northwind --input token=<token>' }] };
+  return {
+    checks: [
+      {
+        id: "northwind.token",
+        status: ctx.env[KEY] ? "configured" : "missing",
+        title: KEY,
+        fix: "dt setup northwind --input token=<token>",
+      },
+    ],
+  }
 }
 
 function plan(ctx, inputs) {
-  const token = inputs.token ?? ctx.env[KEY];
+  const token = inputs.token ?? ctx.env[KEY]
   return {
     checks: inspect({ ...ctx, env: { ...ctx.env, ...(token ? { [KEY]: token } : {}) } }).checks,
-    actions: [{ id: 'set-token', title: `write ${KEY} into .env`, env: { [KEY]: token }, state: token ? 'ready' : 'needs-input' }],
-    needs: token ? [] : ['token'],
-  };
+    actions: [
+      {
+        id: "set-token",
+        title: `write ${KEY} into .env`,
+        env: { [KEY]: token },
+        state: token ? "ready" : "needs-input",
+      },
+    ],
+    needs: token ? [] : ["token"],
+  }
 }
 
 export default function activate(dt) {
   return {
-    setup: [{ id: 'northwind', version: 1, inputs: [{ id: 'token', kind: 'string', env: KEY, required: true }], inspect, plan }],
-  };
+    setup: [
+      {
+        id: "northwind",
+        version: 1,
+        inputs: [{ id: "token", kind: "string", env: KEY, required: true }],
+        inspect,
+        plan,
+      },
+    ],
+  }
 }
 ```
 
@@ -106,17 +130,17 @@ The engine exports helpers that run your module the way a stranger meets it: pac
 
 ```js
 // modules/northwind/test/module.test.mjs
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
-import { createWorkspace, install, run } from 'dreamteamer/testing';
+import { test } from "node:test"
+import assert from "node:assert/strict"
+import { fileURLToPath } from "node:url"
+import { createWorkspace, install, run } from "dreamteamer/testing"
 
-test('northwind installs into a fresh workspace and checks clean', () => {
-  const ws = createWorkspace();
-  const r = install(ws, fileURLToPath(new URL('..', import.meta.url)));
-  assert.ok([0, 3].includes(r.status), r.stdout + r.stderr);   // 3: an input is still to be given
-  assert.equal(run(ws, ['check']).status, 0);
-});
+test("northwind installs into a fresh workspace and checks clean", () => {
+  const ws = createWorkspace()
+  const r = install(ws, fileURLToPath(new URL("..", import.meta.url)))
+  assert.ok([0, 3].includes(r.status), r.stdout + r.stderr) // 3: an input is still to be given
+  assert.equal(run(ws, ["check"]).status, 0)
+})
 ```
 
 Run it from the module's folder, once its dev dependency on the engine is installed:
@@ -155,14 +179,14 @@ npx dreamteamer install @northwind/northwind
 
 A module can reach a workspace in five ways, and a sixth installs several at once. Start at the top and move down only when you need to. The format is the same all the way, so moving is cheap.
 
-| | the sources sit in | how they get there | use it when |
-|---|---|---|---|
-| 1 | `modules/<workspace module>/` | `init` creates it | the content is this workspace's own |
-| 2 | `modules/<id>/` | `add modules --name <id>` | a domain deserves its own box, or you are building a module to share |
-| 3 | `git_modules/<name>/` | `install --clone <url>` | you share through a Git repository, without a registry |
-| 4 | `node_modules/`, from a file or a folder | `install ./x.tgz` or `install ./folder` | you try a module before it is published |
-| 5 | `node_modules/`, from npm | `install <name>` | it is a versioned release for anyone |
-| 6 | `node_modules/`, one folder per member | `install <preset>`, a **module preset**: a package listing member modules, each at an exact version (`dreamteamer.preset`) | a set of modules should install, update and report together |
+|     | the sources sit in                       | how they get there                                                                                                         | use it when                                                          |
+| --- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| 1   | `modules/<workspace module>/`            | `init` creates it                                                                                                          | the content is this workspace's own                                  |
+| 2   | `modules/<id>/`                          | `add modules --name <id>`                                                                                                  | a domain deserves its own box, or you are building a module to share |
+| 3   | `git_modules/<name>/`                    | `install --clone <url>`                                                                                                    | you share through a Git repository, without a registry               |
+| 4   | `node_modules/`, from a file or a folder | `install ./x.tgz` or `install ./folder`                                                                                    | you try a module before it is published                              |
+| 5   | `node_modules/`, from npm                | `install <name>`                                                                                                           | it is a versioned release for anyone                                 |
+| 6   | `node_modules/`, one folder per member   | `install <preset>`, a **module preset**: a package listing member modules, each at an exact version (`dreamteamer.preset`) | a set of modules should install, update and report together          |
 
 When the same module arrives twice, the more local copy wins: `modules/` over `git_modules/` over `node_modules/`. `compile` warns, and `status` shows which copy shadows which.
 
@@ -193,7 +217,7 @@ This clones the repository into `git_modules/northwind/` and records it in `pack
 
 On a fresh checkout, `npx dreamteamer install` restores every clone from that map, and `npx dreamteamer update` pulls each one forward on its `ref` (fast-forward only). A repository whose root holds a `modules/` folder delivers every module in it.
 
-The same key attaches another **workspace**, which makes it a *record layer*: its records are read here, and its modules are not compiled. Two optional keys on the entry change that: `"records": ["tasks"]` reads only the collections listed, and `"module": true` also compiles that workspace's own module. What a layer itself needs from its own `git_modules` is cloned for you, and an entry you declare yourself overrides the layer's. See "record layers" in [collections.md](skills/using-dreamteamer/references/collections.md).
+The same key attaches another **workspace**, which makes it a _record layer_: its records are read here, and its modules are not compiled. Two optional keys on the entry change that: `"records": ["tasks"]` reads only the collections listed, and `"module": true` also compiles that workspace's own module. What a layer itself needs from its own `git_modules` is cloned for you, and an entry you declare yourself overrides the layer's. See "record layers" in [collections.md](skills/using-dreamteamer/references/collections.md).
 
 ### 4. A tarball or a folder
 
@@ -221,6 +245,7 @@ Don't edit an installed module. The workspace has three tools of its own:
   ```
 
   An overlay can add or tighten fields, never remove one. A view can be overlaid too ([ui-views.md](skills/using-dreamteamer/references/ui-views.md)).
+
 - **`dreamteamer.disable`** in the workspace's `package.json` drops a whole module, code included, or one entity as `<kind>/<id>`: `"disable": ["modules/northwind", "skills/working-with-tickets"]`.
 - **A more local copy** shadows an installed one, as above. Use it to work on a module you also have installed, not to fork one quietly.
 

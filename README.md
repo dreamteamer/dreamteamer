@@ -11,6 +11,7 @@ dreamteamer ships with a base set of [modules](https://github.com/dreamteamer/dr
 ## Getting started
 
 ### For humans (non coders)
+
 In Claude Code (or any other agent harness), paste the following prompt, replacing `my-workspace` and `~/Documents` with your desired values:
 
 ```markdown
@@ -22,6 +23,7 @@ Read the [dreamteamer modules README](https://github.com/dreamteamer/dreamteamer
 
 Verify that the workspace works by running `npx dreamteamer status` and making sure it reports everything as expected.
 ```
+
 Then start a new session in your newly created folder (some agents may already switch to it automatically). Continue your conversations with the agent in this folder as you would normally. You can start by asking:
 
 ```
@@ -43,6 +45,7 @@ I'm trying to do XXX - how can I leverage dreamteamer to help me accomplish this
 ### For agents (and code-savvy humans)
 
 #### Prerequisites
+
 ```bash
 node -v        # 20 or later
 npm -v         # 7 or later

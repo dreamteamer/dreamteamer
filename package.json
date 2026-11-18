@@ -1,99 +1,99 @@
 {
-	"name": "dreamteamer",
-	"version": "0.49.1",
-	"description": "A workspace compiler for coding agents — schema-validated records as plain files over git, compiled into every harness",
-	"license": "Apache-2.0",
-	"author": "Gilad Khen <giladkhen@gmail.com>",
-	"homepage": "https://github.com/dreamteamer/dreamteamer#readme",
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/dreamteamer/dreamteamer.git"
-	},
-	"bugs": {
-		"url": "https://github.com/dreamteamer/dreamteamer/issues"
-	},
-	"keywords": [
-		"agent",
-		"coding-agent",
-		"claude-code",
-		"workspace",
-		"compiler",
-		"cli",
-		"yaml",
-		"markdown",
-		"json-schema",
-		"git"
-	],
-	"type": "module",
-	"engines": {
-		"node": ">=20",
-		"npm": ">=7"
-	},
-	"main": "./dist/api.js",
-	"types": "./dist/api.d.ts",
-	"exports": {
-		".": {
-			"types": "./dist/api.d.ts",
-			"default": "./dist/api.js"
-		},
-		"./records": {
-			"types": "./dist/records-api.d.ts",
-			"default": "./dist/records-api.js"
-		},
-		"./testing": {
-			"types": "./dist/testing.d.ts",
-			"default": "./dist/testing.js"
-		},
-		"./package.json": "./package.json"
-	},
-	"bin": {
-		"dreamteamer": "bin/dreamteamer.js",
-		"dt": "bin/dreamteamer.js"
-	},
-	"files": [
-		"NOTICE",
-		"bin",
-		"dist",
-		"collections",
-		"skills",
-		"agents",
-		"commands",
-		"command-bindings",
-		"ui-views",
-		"mixins",
-		"scripts/migrate-descriptors-v2.mjs",
-		"scripts/migrate-stubs.mjs"
-	],
-	"dependencies": {
-		"ajv": "^8.17.1",
-		"ajv-formats": "^3.0.1",
-		"fractional-indexing": "^4.0.0",
-		"js-yaml": "^4.1.0",
-		"yaml": "2.8.4"
-	},
-	"dreamteamer": {
-		"title": "System"
-	},
-	"scripts": {
-		"build": "node scripts/build.mjs",
-		"prepack": "node scripts/build.mjs",
-		"typecheck": "tsc -p tsconfig.json --noEmit",
-		"typecheck:test": "tsc -p test/tsconfig.json",
-		"test": "node scripts/test.mjs",
-		"test:unit": "node scripts/test.mjs --unit",
-		"test:watch": "node --watch scripts/test.mjs --unit",
-		"perf": "node test/perf/run.mjs",
-		"metrics": "node scripts/metrics.mjs",
-		"metrics:check": "node scripts/metrics.mjs --check",
-		"layers": "node scripts/layers.mjs",
-		"verify": "node scripts/layers.mjs && node scripts/metrics.mjs --check && node scripts/test.mjs",
-		"verify:fast": "node scripts/layers.mjs && node scripts/metrics.mjs --check && node scripts/test.mjs --changed",
-		"format": "prettier --write .",
-		"format:check": "prettier --check ."
-	},
-	"devDependencies": {
-		"@types/node": "^22.20.5",
-		"prettier": "^3.10.1",
-		"typescript": "^6.0.3"
-	}
+  "name": "dreamteamer",
+  "version": "0.49.1",
+  "description": "A workspace compiler for coding agents — schema-validated records as plain files over git, compiled into every harness",
+  "license": "Apache-2.0",
+  "author": "Gilad Khen <giladkhen@gmail.com>",
+  "homepage": "https://github.com/dreamteamer/dreamteamer#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dreamteamer/dreamteamer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dreamteamer/dreamteamer/issues"
+  },
+  "keywords": [
+    "agent",
+    "coding-agent",
+    "claude-code",
+    "workspace",
+    "compiler",
+    "cli",
+    "yaml",
+    "markdown",
+    "json-schema",
+    "git"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=20",
+    "npm": ">=7"
+  },
+  "main": "./dist/api.js",
+  "types": "./dist/api.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/api.d.ts",
+      "default": "./dist/api.js"
+    },
+    "./records": {
+      "types": "./dist/records-api.d.ts",
+      "default": "./dist/records-api.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "dreamteamer": "bin/dreamteamer.js",
+    "dt": "bin/dreamteamer.js"
+  },
+  "files": [
+    "NOTICE",
+    "bin",
+    "dist",
+    "collections",
+    "skills",
+    "agents",
+    "commands",
+    "command-bindings",
+    "ui-views",
+    "mixins",
+    "scripts/migrate-descriptors-v2.mjs",
+    "scripts/migrate-stubs.mjs"
+  ],
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "fractional-indexing": "^4.0.0",
+    "js-yaml": "^4.1.0",
+    "yaml": "2.8.4"
+  },
+  "dreamteamer": {
+    "title": "System"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "prepack": "node scripts/build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:test": "tsc -p test/tsconfig.json",
+    "test": "node scripts/test.mjs",
+    "test:unit": "node scripts/test.mjs --unit",
+    "test:watch": "node --watch scripts/test.mjs --unit",
+    "perf": "node test/perf/run.mjs",
+    "metrics": "node scripts/metrics.mjs",
+    "metrics:check": "node scripts/metrics.mjs --check",
+    "layers": "node scripts/layers.mjs",
+    "verify": "node scripts/layers.mjs && node scripts/metrics.mjs --check && node scripts/test.mjs",
+    "verify:fast": "node scripts/layers.mjs && node scripts/metrics.mjs --check && node scripts/test.mjs --changed",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "prettier": "^3.10.1",
+    "typescript": "^6.0.3"
+  }
 }

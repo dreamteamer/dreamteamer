@@ -1,5 +1,5 @@
 name: skills
-record_title: '{{ name }}'
+record_title: "{{ name }}"
 description: A procedure a session loads on its own when its situation matches — its `description` is the trigger, never a summary.
 use_when: >-
   a job recurs and a session should find the know-how for it without being told — write the procedure
@@ -11,7 +11,7 @@ storage:
   shape: folder
   entry: SKILL.md
 ids:
-  from: '{{ name | slug }}'
+  from: "{{ name | slug }}"
 fields:
   name:
     type: string

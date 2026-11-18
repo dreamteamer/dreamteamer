@@ -1,1 +1,15 @@
-{ "name": "alone-missing-dep", "version": "1.0.0", "type": "module", "files": ["collections"], "dreamteamer": { "description": "Names a dependency nothing here holds.", "engine": ">=0.47.0", "dependencies": ["@alone/nowhere"] } }
+{
+  "name": "alone-missing-dep",
+  "version": "1.0.0",
+  "type": "module",
+  "files": [
+    "collections"
+  ],
+  "dreamteamer": {
+    "description": "Names a dependency nothing here holds.",
+    "engine": ">=0.47.0",
+    "dependencies": [
+      "@alone/nowhere"
+    ]
+  }
+}
