@@ -4,7 +4,6 @@ import { type StdioOptions } from "node:child_process"
  *  either separator, because manifest paths carry the host's. */
 export const IN_NODE_MODULES = (rel: unknown): boolean => /(^|[\\/])node_modules([\\/]|$)/.test(String(rel))
 
-// ---- the identity entities: skills, agents, commands, command-bindings, mixins ----------------
 // §3.1's last row. These are FLAT at a module root and stay flat (decision 274) — their ids are
 // single segments, and namespacing them was cut with the wave that considered it.
 //
@@ -127,8 +126,6 @@ export const VERB_FLAGS: Record<string, string[]> = {
  */
 export const META_FLAGS = new Set(["id", "json", "force", "filter", "module", "dry-run"])
 
-// ---- writing a source a HUMAN wrote ---------------------------------------------
-//
 // `dump` is for GENERATED output — the compiled runtime, a record's front matter, a harness file —
 // where nothing was hand-formatted and byte-stability is the only thing that matters. A module
 // SOURCE is the opposite case: it is hand-written, and it is where a module records WHY a collection

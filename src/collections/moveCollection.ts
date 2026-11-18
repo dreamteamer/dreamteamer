@@ -10,7 +10,6 @@ import type { Descriptor, Field, Workspace } from "../types.ts"
 import { kindDir } from "../compile/compile.ts"
 import { moduleRows } from "../workspace/moduleRows.ts"
 
-// ---- moving a collection between modules -------------------------------------------------------
 // §7. `dt set collections/teams module=hr` — NOT `move`/`reorder` (the nav's order is nav.yaml since 0.49). The descriptor
 // SOURCE relocates; the RECORDS do not, because a namespace and a `storage.path` are properties of
 // the collection rather than of the module, so a move never changes an id and never touches data.
@@ -128,7 +127,7 @@ export function moveCollection(
     )
   }
 
-  // ---- the reference contract, BEFORE anything moves ------------------------------------------
+  // the reference contract, BEFORE anything moves
   const needs = moveImpact(store, name, toModule)
   const plan = {
     name,

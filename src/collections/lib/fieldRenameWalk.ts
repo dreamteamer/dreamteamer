@@ -11,8 +11,6 @@ import type { Store } from "../../store/Store.ts"
 import { bodyFieldOf, fieldsOf } from "../../record/descriptor.ts"
 import type { Field, Workspace } from "../../types.ts"
 
-// ---- rename-field ------------------------------------------------------------------------------
-
 /** Every position a rename of `collection.from` → `to` rewrites, the records it rewrites, and what
  *  it cannot. Read-only: the dry run IS this. */
 export function fieldRenameWalk(

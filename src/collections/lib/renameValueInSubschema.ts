@@ -1,7 +1,6 @@
 import { asTree } from "../../lib/schema-ops.ts"
 import type { At } from "./types.ts"
 
-// ---- rename-value ------------------------------------------------------------------------------
 // The value half of rule 6: an enum value is named by the field's `enum` (a list, or the key of a
 // decorated map), its `default`, a constraint's `const`/`enum` on that field, a view filter and a
 // binding condition on it, and every record holding it.

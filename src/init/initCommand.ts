@@ -14,8 +14,6 @@ import { resolveNpm } from "../lib/npm/resolveNpm.ts"
 import { satisfies } from "../lib/npm/satisfies.ts"
 import { staleness } from "../compile/staleness.ts"
 
-// ---- `dt init` — one command from a folder to a compiled, checked, committed workspace ------------
-
 import { EXACT } from "../lib/npm/exact.ts"
 
 /** A JSON file as `T` (the shape the caller reads), or null when it is absent or does not parse. */

@@ -1,7 +1,6 @@
 import { FIELD_OPTIONS, TEMPLATE_OPTIONS } from "../../compile/consts.ts"
 import { INJECTED_FIELDS } from "../../record/consts.ts"
 
-// ---- the positions that name a field, and a value ----------------------------------------------
 // A field is referenced BY NAME, not as a `<collection>/<id>` reference, so `store.rewriteRefs` can
 // see none of it. Rule 6 is the list of every position a descriptor, a view or a binding may name a
 // field in — compile validates each one — and these walkers visit exactly that list:

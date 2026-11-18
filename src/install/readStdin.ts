@@ -1,7 +1,5 @@
 import fs from "node:fs"
 
-// ---- the harness hook forms ----------------------------------------------------------------
-//
 // A hook is not a person: it does not type a target, it hands the engine a JSON object on stdin and
 // reads whatever comes back on stdout. Two of this file's verbs grow that form, and one function
 // parses the payload for both.

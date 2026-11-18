@@ -147,7 +147,7 @@ export class Store {
     return refuseMirrorWrites(this, collection, id, changed)
   }
 
-  // ---- descriptor v2: the fields the engine writes, and values that must be unique ----------
+  // descriptor v2: the fields the engine writes, and values that must be unique
   // Read from `compiled.fields`, the resolved v2 field list — the first reader of it in the store.
   // A collection compiled from a v1 source has no `compiled` block, and none of this applies to it.
 
@@ -564,8 +564,6 @@ export class Store {
     return relocate(this, collection, opts)
   }
 
-  // ---- validation (hard) ---------------------------------------------------
-
   validate(d: Descriptor, fields: Fields, opts?: { skipRefs?: boolean; repo?: string | null }): Fields {
     return validate(this, d, fields, opts)
   }
@@ -593,8 +591,6 @@ export class Store {
   checkRefs(d: Descriptor, fields: Fields, repo: string | null = null): void {
     return checkRefs(this, d, fields, repo)
   }
-
-  // ---- verbs -----------------------------------------------------------------
 
   add(
     collection: string,
@@ -798,7 +794,7 @@ export class Store {
     return writeLockPath(this)
   }
 
-  // ---- write serialization + rollback (review finding 3; reinstates the v2 commit
+  // write serialization + rollback (review finding 3; reinstates the v2 commit
   // queue idea in sync form). within ONE process Node's sync fs/exec already serializes;
   // the lock guards CLI-beside-server cross-process races on .git/index.lock. a commit
   // failure UNDOES the write, so "one mutation = one commit" fails CLOSED and

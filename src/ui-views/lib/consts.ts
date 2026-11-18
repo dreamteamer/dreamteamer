@@ -1,4 +1,3 @@
-// ---- ui-views ---------------------------------------------------------------------------------
 // A view is an ordinary record conceptually (decision 49) but a SYSTEM-stored one, so it goes
 // through saveUiView's compile gate rather than the record store. Without these verbs everything
 // the Layout options panel does — columns, order, sort, layout, filter, nav — was click-only.

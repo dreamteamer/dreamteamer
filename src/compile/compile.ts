@@ -193,7 +193,6 @@ export const moduleIdOf = (n: string): string => slug(String(n).replace(/^@[^/]+
 export const locationOf = (source: ModuleSource, wsRoot: string): string =>
   path.resolve(source.root) === path.resolve(wsRoot) ? "root" : (CHANNEL_LABEL[source.channel] ?? source.channel)
 
-// ---- module-owned data ----------------------------------------------------------
 // A module with `owns-data: true` keeps its records BESIDE ITSELF rather than in the
 // workspace's data/. The descriptor still says `data/<collection>`; compile is what turns
 // that into a path, so the module never names its host.
@@ -300,7 +299,7 @@ export function compile(ws: Workspace): 0 {
     }
   }
 
-  // ---- discover sources: channel modules then the workspace's own -----------------
+  // discover sources: channel modules then the workspace's own
   const { modules: discovered, shadows, disabledModules, layerRefusals } = discoverModules(root, pkg)
   for (const r of layerRefusals) fail(r)
   for (const s of shadows) console.warn(shadowWarning(s))
@@ -325,7 +324,7 @@ export function compile(ws: Workspace): 0 {
     }
   }
 
-  // ---- engine floors: a module whose `dreamteamer.engine` excludes this engine is REFUSED whole —
+  // engine floors: a module whose `dreamteamer.engine` excludes this engine is REFUSED whole —
   // none of its content compiles, since it may use what this engine cannot read; the rest does
   const engineVer = engineVersion()
   const refused = new Map() // module name -> the range it declares
@@ -345,7 +344,7 @@ export function compile(ws: Workspace): 0 {
     )
   }
 
-  // ---- module package pass: env declarations; a missing secret warns, never fails ---------
+  // module package pass: env declarations; a missing secret warns, never fails
   // A module's record id: the npm scope stripped, so `@dreamteamer/crm` reads as `crm` — which is
   // what every message in this engine already calls it. Defined HERE, above the namespace pass,
   // because a namespace error has to name the module by the id the fix is typed with.
@@ -623,7 +622,7 @@ export function compile(ws: Workspace): 0 {
     ensureEditorRecommendation(root)
   }
 
-  // ---- local-assets and postinstall: what `dt install` will do to a checkout -------
+  // local-assets and postinstall: what `dt install` will do to a checkout
   // `local-assets` are the gitignored heavy folders a checkout SHARES by symlink instead of
   // duplicating — a browser profile dir, a model cache. Declared, never discovered. Every
   // refusal below is something the installer would otherwise hit at RUN time, on a machine nobody
@@ -675,7 +674,6 @@ export function compile(ws: Workspace): 0 {
   if (config.postinstall != null && typeof config.postinstall !== "string")
     fail("dreamteamer.postinstall must be a single shell string")
 
-  // ---- the module dependency graph -------------------------------------------------
   // `dependencies` names MODULES and must be acyclic. `peer_collections` names COLLECTIONS and
   // therefore cannot cycle at all — which is the whole reason it exists: two modules that each
   // reference a concept the other owns (crm needs `products`, rnd needs `contacts`) would be an
@@ -911,7 +909,7 @@ export function compile(ws: Workspace): 0 {
     }
   }
 
-  // ---- ui-view overlays: a same-id view carrying `overlay: true` MERGES onto the shipped one --------
+  // ui-view overlays: a same-id view carrying `overlay: true` MERGES onto the shipped one
   // The way a collection overlay refines a descriptor it does not own, so a workspace changes a
   // package's view in the few lines that differ instead of copying it (and losing every later fix
   // the package ships). DEEP, overlay wins at the leaves, a list is replaced whole, and `null`
@@ -938,7 +936,6 @@ export function compile(ws: Workspace): 0 {
     ;(e.overlaidBy ??= []).push(moduleId(o.moduleName))
   }
 
-  // ---- stage module UI bundles ---------------------------------------------------
   // modules ship a PRE-BUILT app.js that registers components/layouts against the surface's
   // registry (design "the UI": components are module code, never records). staged under
   // .dreamteamer/ui/<module>/app.js; the VS Code extension reads it off disk (decision 48) and
@@ -1012,7 +1009,7 @@ export function compile(ws: Workspace): 0 {
       )
   }
 
-  // ---- mixins (descriptor v2): partial descriptors merged into the collections that list them ----
+  // mixins (descriptor v2): partial descriptors merged into the collections that list them
   const mixinDocs = new Map() // id -> doc (with `src` for staleness)
   for (const [rt, entry] of entries) {
     const m = /^mixins\/(.+)\.mixin\.yaml$/.exec(rt)
@@ -1034,7 +1031,7 @@ export function compile(ws: Workspace): 0 {
     mixinDocs.set(m[1], { ...doc, src: entry.sources[0] })
   }
 
-  // ---- namespaces: the UNION of every module's declaration plus the workspace's (§8) ----------
+  // namespaces: the UNION of every module's declaration plus the workspace's (§8)
   //
   // This used to be "the workspace package.json only, never per-module", and the reason was real: a
   // module that can declare a namespace can rename where another module's records live. What it
@@ -1094,7 +1091,7 @@ export function compile(ws: Workspace): 0 {
     )
   }
 
-  // ---- collections: descriptor format v2, the only format read ---------------------------
+  // collections: descriptor format v2, the only format read
   // The engine's own collections are an implicit dependency of every module: the entity kinds the
   // compiler materializes, plus `repos` (because `install repos/<id>` clones them).
   const CORE_COLLECTIONS = new Set([...kinds, ...DERIVED_KINDS, "repos"])
@@ -1154,7 +1151,6 @@ export function compile(ws: Workspace): 0 {
     counts.collections++
   }
 
-  // ---- modules, projected ---------------------------------------------------------
   // One record per discovered module, written from what discovery and the package pass already
   // established. `package.json` remains the source of truth and compile keeps reading it — this
   // is a photograph, never an input (see collections/modules.collection.yaml for why it earns a
@@ -1252,7 +1248,6 @@ export function compile(ws: Workspace): 0 {
     counts.modules = (counts.modules ?? 0) + 1
   }
 
-  // ---- the workspace's own hand-written instructions -------------------------------
   // ONE source, rendered verbatim into every harness's instruction file. It is registered as a
   // manifest entry for exactly one reason: `staleness` walks manifest sources, so a file that is
   // not one can be edited forever without `dt status` ever saying the harness files lag it — and a
@@ -1271,7 +1266,7 @@ export function compile(ws: Workspace): 0 {
     entries.set("instructions.md", { sources: [{ path: rel(instructionsPath), hash: sha256(bytes) }], bytes })
   }
 
-  // ---- unresolved references are compile errors (an agent's declared skills)
+  // unresolved references are compile errors (an agent's declared skills)
   const skillIds = new Set([...entries.keys()].filter(k => k.startsWith("skills/")).map(k => k.split("/")[1]))
   for (const [rt, e] of entries) {
     // A SKILL whose frontmatter is not YAML compiled ✔ and was refused one gate later by `check`,
@@ -1294,7 +1289,7 @@ export function compile(ws: Workspace): 0 {
       if (!disabledHits.has(d)) console.warn(`⚠ dreamteamer.disable entry "${d}" matched nothing`)
   }
 
-  // ---- ui-views and command-bindings: validated against the collection each one names ----------
+  // ui-views and command-bindings: validated against the collection each one names
   // `layout` is not validated: the engine validates a value only where it interprets it, and a layout
   // id is opaque payload for whichever surface renders it (an unregistered one degrades there). Filter
   // operators, field names and templates the engine does interpret, so a typo fails here rather than
@@ -1372,7 +1367,6 @@ export function compile(ws: Workspace): 0 {
   }
   if (v1Sources.length) fail(v1Refusal(v1Sources.sort()))
 
-  // ---- extension analysis ------------------------------------------------------------
   // After the whole compile is assembled and BEFORE any output is replaced: an extension that owns a
   // source kind judges its entries against the final merged schemas (proofs name artifacts and filter
   // on fields, so only the assembled workspace can say whether they mean anything). The draft is data
@@ -1410,7 +1404,7 @@ export function compile(ws: Workspace): 0 {
     }
   }
 
-  // ---- extension code for the harness pass, run BEFORE anything is replaced ------------
+  // extension code for the harness pass, run BEFORE anything is replaced
   // A contributed renderer that throws must leave the last good runtime and every harness file
   // byte-for-byte as they were — so it runs here, on data, and the write pass below only writes.
   let contributions
@@ -1420,7 +1414,6 @@ export function compile(ws: Workspace): 0 {
     fail(e.message)
   }
 
-  // ---- materialize .dreamteamer ------------------------------------------------
   // mkdir the runtime ROOT unconditionally: with zero entries nothing below created it, so the
   // manifest write at the end failed ENOENT — `init` followed by `compile` in a fresh workspace
   // crashed on the one path a new user takes first.
@@ -1450,7 +1443,6 @@ export function compile(ws: Workspace): 0 {
     fs.writeFileSync(dest, e.bytes)
   }
 
-  // ---- harness adapters (dispatch table lives in harnesses.js) -------------------
   // What the harness blocks should TELL an agent about where sources live — measured, not assumed.
   // A workspace still on the nested layout was being handed prose naming the flat one, and that
   // block is the first thing a session reads.
@@ -1486,7 +1478,6 @@ export function compile(ws: Workspace): 0 {
       )
   }
 
-  // ---- provenance manifest ------------------------------------------------------
   const manifest = {
     compiled: new Date().toISOString(),
     host: engineId(),

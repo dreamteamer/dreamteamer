@@ -42,7 +42,7 @@ export async function targetCommand(ws: Workspace, collection: string, verb: str
   const { flags, pos } = parseArgs(args)
   refuseUnknownFlags(store, collection, verb, flags)
 
-  // ---- system verbs: source writes, never the runtime ----------
+  // system verbs: source writes, never the runtime
   // These MUST come before the generic records handler: their collections are system-stored, so the
   // ordinary record path refuses them ("… are system sources") and always would.
   for (const handler of await candidates(store, collection, verb)) {

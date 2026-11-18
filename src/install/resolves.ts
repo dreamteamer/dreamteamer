@@ -1,7 +1,5 @@
 import fs from "node:fs"
 
-// ---- the impure half: observe this checkout, run the plan, print the board -----------------
-
 /**
  * ⚠ BOTH OF THESE FOLLOW SYMLINKS, and that is the whole point. A DANGLING link is exactly what a
  * moved or deleted primary leaves behind, and it is the one state where "there is a symlink here"

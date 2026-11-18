@@ -33,8 +33,6 @@ export type {
   NavWarning,
 } from "./types.ts"
 
-// ---- the workspace ------------------------------------------------------------------------------
-
 import { openWorkspace } from "./openWorkspace.ts"
 export { openWorkspace }
 export { findWorkspace }
@@ -94,7 +92,6 @@ export async function contributedViolations(ws: Workspace): Promise<{ file: stri
 export const engineBin = fileURLToPath(new URL("../bin/dreamteamer.js", import.meta.url))
 export const engineRoot = path.dirname(path.dirname(engineBin))
 
-// ---- values the workspace half adds ---------------------------------------------------------------
 export { envContext } from "./workspace/envContext.ts"
 export { renderTemplate } from "./workspace/renderTemplate.ts"
 export { parseEnvValues } from "./workspace/parseEnvValues.ts"
@@ -109,7 +106,6 @@ export { satisfies } from "./lib/npm/satisfies.ts"
 export { readNavDoc, validateNavDoc, writeNavDoc } from "./record/nav.ts"
 export { applyNavFragments } from "./workspace/navFragments.ts"
 
-// ---- the compiler, schema and module operations ---------------------------------------------------
 export { compile, warnIfStale, CompileError } from "./compile/compile.ts"
 export { staleness } from "./compile/staleness.ts"
 export { discoverModules } from "./workspace/discoverModules.ts"
@@ -146,7 +142,6 @@ export { ensureRepo, ensureAllRepos } from "./repos/repos.ts"
 export { listRepos } from "./repos/listRepos.ts"
 export { installClone } from "./install/installClone.ts"
 
-// ---- the checkout: which one this is, and how it becomes ready ---------------------------------
 export { describeCheckout } from "./lib/git/describeCheckout.ts"
 export { resolveNpm } from "./lib/npm/resolveNpm.ts"
 export { childEnv } from "./lib/childEnv.ts"
@@ -163,6 +158,5 @@ export const installCommand = (
   opts: { open?: (at: string) => Promise<Workspace> } = {}
 ): Promise<number> => installCheckout(ws, argv, { open: openWorkspace, ...opts })
 
-// ---- CLI helpers an extension command reuses -----------------------------------------------------
 export { emit } from "./lib/emit.ts"
 export { parseArgs } from "./lib/parseArgs.ts"

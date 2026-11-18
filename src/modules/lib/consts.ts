@@ -1,5 +1,4 @@
 import { KINDS } from "../../compile/consts.ts"
-// ---- modules ---------------------------------------------------------------------------------
 // A module is THREE-SPELLED today: the package `name` (discovery, `dependencies`), the
 // folder (the `workspace_module` key), and the slugged scope-stripped record id. The RECORD ID is
 // the identity everywhere the operator types it — `--module <id>`, `modules/<id>` references,

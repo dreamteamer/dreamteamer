@@ -183,7 +183,7 @@ export function renameCollection(ws: Workspace, store: Store, oldName: string, n
     throw new Error(`${newPath} already exists on disk — move or remove it first; nothing was renamed`)
   }
 
-  // ---- rollback state, captured before the first mutation --------------------------------------
+  // rollback state, captured before the first mutation
   const srcBytes = fs.readFileSync(src)
   let movedData = false
   const resuffixed: [string, string][] = []

@@ -1,8 +1,6 @@
 import { usage } from "./setup.ts"
 import type { InputFlag } from "./types.ts"
 
-// ---- pure ---------------------------------------------------------------------------------------
-
 /** `--input id=value` and `--input unit.id=value`, repeated; the value may itself hold `=`. */
 export function parseInputFlags(argv: string[]): InputFlag[] {
   const out: InputFlag[] = []

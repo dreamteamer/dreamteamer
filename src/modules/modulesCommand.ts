@@ -16,7 +16,6 @@ import { setModule } from "./setModule.ts"
 import { alreadyThat } from "../lib/alreadyThat.ts"
 import { rel } from "../lib/rel.ts"
 
-// ---- modules ----------------------------------------------------------------------------------
 // A module is the one system entity that had no verbs at all, which is what left system-entity CRUD
 // incomplete: there was no `add-module`, no `rm-module`, no `rename-field`, and no way to NAME a
 // target module. §6.2.

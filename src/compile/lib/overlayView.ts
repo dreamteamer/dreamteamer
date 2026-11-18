@@ -1,6 +1,5 @@
 import { isMap } from "../views.ts"
 
-// ---- view overlays ---------------------------------------------------------------------------------
 // A ui-view source with `overlay: true` and the id of a view another module ships is MERGED onto it at
 // compile (compile.js). These two are the whole grammar, and inverse: `overlayView(base, viewOverlayOf(
 // base, view))` is `view` again, which is what lets a save over a package's view write only what differs.

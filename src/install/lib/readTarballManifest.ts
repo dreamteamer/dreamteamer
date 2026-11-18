@@ -3,8 +3,6 @@ import fs from "node:fs"
 import type { PackageJson } from "../../types.ts"
 import { refuse } from "../versions.ts"
 
-// ---- reading manifests ----------------------------------------------------------------------------
-
 /** `package/package.json` out of an npm tarball: gunzip, then walk the ustar headers (512-byte
  *  blocks; the size is octal at offset 124; a `./` prefix is tolerated). No dependency, no shell. */
 export function readTarballManifest(file: string): PackageJson {

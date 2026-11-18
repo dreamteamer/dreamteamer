@@ -14,8 +14,6 @@ import type { AuthoredDescriptor, Workspace } from "../types.ts"
 import { kindDir } from "../compile/compile.ts"
 import { writeGated } from "../workspace/writeGated.ts"
 
-// ---- ops ------------------------------------------------------------------------
-
 export function createCollection(
   ws: Workspace,
   store: Store,

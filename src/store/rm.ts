@@ -51,7 +51,7 @@ export function rm(
     return p ? `${p.collection}/${p.id}` === self : bare && `${collection}/${v}` === self
   }
 
-  // ---- who points AT this record, and under what rule -------------------------------
+  // who points AT this record, and under what rule
   const setNullEdits: { rel: Relation; oid: string; file: string; of: Fields; bare: boolean }[] = []
   const restrictHits: { ref: string; field: string; file: string }[] = []
   for (const rel of store.relations()) {
@@ -69,7 +69,7 @@ export function rm(
     }
   }
 
-  // ---- what the text scan finds that is NOT the engine's own bookkeeping -------------
+  // what the text scan finds that is NOT the engine's own bookkeeping
   // The scan is per FILE, and one file can name this record TWICE — a mirror the engine wrote, and
   // a wikilink somebody typed in the same record's body. So excluding a file WHOLESALE is wrong:
   // it drops the prose reference along with the managed one, and `check` reads frontmatter and

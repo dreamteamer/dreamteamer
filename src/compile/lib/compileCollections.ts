@@ -190,7 +190,7 @@ export function compileCollections(ctx: CollectionsContext): {
     return out
   }
 
-  // ---- v1 is refused, every file at once --------------------------------------------------
+  // v1 is refused, every file at once
   const v1: string[] = []
   for (const group of groups.values()) for (const g of group) if (!isV2(g.doc)) v1.push(g.src.path)
   if (v1.length) fail(v1Refusal(v1.sort()))
@@ -204,7 +204,6 @@ export function compileCollections(ctx: CollectionsContext): {
   const moduleColls = new Map()
   const owners = new Map<string, string>() // collection -> owning module name
 
-  // ---- per collection: bases, overlays, mixins, fields -------------------------------------
   const staged = new Map<
     string,
     {
@@ -273,7 +272,6 @@ export function compileCollections(ctx: CollectionsContext): {
     staged.set(name, { authored, group, base, overlays, mixinSrcs, where })
   }
 
-  // ---- storage, fields, the reference contract ----------------------------------------------
   const storageEntries = []
   const wordEntries = []
   for (const [name, s] of staged) {
@@ -292,7 +290,7 @@ export function compileCollections(ctx: CollectionsContext): {
       if (modRel) storagePath = `${modRel}/${storagePath}`
       repo = repoOf(source.root)
     }
-    // ---- an env-pointed root: `storage.path: ${env:NAME}/…` is rendered HERE, per machine ----
+    // an env-pointed root: `storage.path: ${env:NAME}/…` is rendered HERE, per machine
     // The one renderer (`dt resolve`'s), never a second. ⚠ A template left unrendered compiled and
     // wrote into a literal `${env:NAME}/` folder inside the workspace, every verb reporting ✔ — so a
     // template that cannot render is stamped `unavailable` and every record verb refuses, and one
@@ -362,7 +360,7 @@ export function compileCollections(ctx: CollectionsContext): {
         `collection "${name}" is \`format: binary\` — one file per record, not a folder; drop \`shape: folder\` (${where})`
       )
     storageEntries.push({ name, path: storagePath, base: runtime ? "runtime" : "workspace" })
-    // ---- record layers: the listed clones' data folders, read BELOW the write root ----
+    // record layers: the listed clones' data folders, read BELOW the write root
     const collLayers = []
     for (const l of layers) {
       // where this collection's records would sit in the clone — claimed, so the unread-folder

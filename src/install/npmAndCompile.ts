@@ -13,8 +13,6 @@ import { planNavFragments, type NavPlan } from "../workspace/navFragments.ts"
 /** the command line, two folders up from src/install/ in a checkout and from dist/install/ in the package */
 const BIN = fileURLToPath(new URL("../../bin/dreamteamer.js", import.meta.url))
 
-// ---- steps 2–4 and 5–6, shared with `dt update` (install one pin later) ----------------------------
-
 /**
  * Steps 2–4: npm on the resolved list (the two files it rewrites copied aside), verify every package
  * resolves at the version asked for, compile (a refusal restores the pre-image and prunes), then the

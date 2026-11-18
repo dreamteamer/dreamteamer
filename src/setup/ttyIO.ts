@@ -1,8 +1,6 @@
 import readline from "node:readline/promises"
 import type { SetupIO } from "./types.ts"
 
-// ---- the verb -----------------------------------------------------------------------------------
-
 /** The terminal's prompt and y/n, on one readline — `dt setup` and `dt install` share it. */
 export function ttyIO(): SetupIO & { close: () => void } {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout })

@@ -17,12 +17,9 @@ export const SCALAR_TYPES = [
 
 export const EXPORTS_FILE = "dreamteamer-exports.json"
 
-// ---- the grammar, for compile and for display ----------------------------------------------------
-
 export const FILTERS = ["date", "datetime", "slug", "pad", "basename"]
 
-// ---- shared reader primitives (review finding 11: walk/EXT existed 2-4×, diverging) ----
-
+/** A record format's file extension, defined once — review finding 11 found it copied in 2–4 places, diverging. */
 export const EXT: Record<string, string> = { md: ".md", yaml: ".yaml", json: ".json" }
 
 /** How big a `format: binary` record may be before `check` says something, when its collection does not
@@ -38,7 +35,6 @@ export const DATE_TIME =
 /** Never a namespace: it would give the default namespace a second, prefixed spelling. */
 export const RESERVED_NAMESPACES = new Set(["default"])
 
-// ---- value tokens ------------------------------------------------------------------
 // A filter value is a literal or one of VALUE_TOKENS, resolved when the filter is evaluated against
 // the evaluating machine's clock and zone, so a saved view "due before today" stays true tomorrow.
 // `$today` is the local calendar date (the shape a `date` field holds); `$now` is the local instant

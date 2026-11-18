@@ -92,7 +92,7 @@ export function entitiesCommand(
   flags: Flags,
   pos: string[]
 ): number | null {
-  // ---- the identity entities. §3.1's last row: `add` scaffolds a skill and is refused WITH THE
+  // the identity entities. §3.1's last row: `add` scaffolds a skill and is refused WITH THE
   // PATH for the five hand-authored kinds; `set` edits frontmatter; `rm` and `rename` work on all
   // six. Keyed on the collection NAME rather than on `storage.base` because these six are the
   // ones with a source-file shape — `modules` is projected and `collections` has its own verbs.

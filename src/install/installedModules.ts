@@ -12,8 +12,6 @@ interface InstalledModule {
   channel: string
 }
 
-// ---- the closure --------------------------------------------------------------------------------
-
 /** The modules already here, by package name: version, whether it is a development link, its manifest. */
 export function installedModules(ws: Workspace): Map<string, InstalledModule> {
   const out = new Map<string, InstalledModule>()

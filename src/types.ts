@@ -276,7 +276,6 @@ export interface Presentation {
   relations: PresentationRelation[]
 }
 
-// ---- the workspace half ----
 /** Parsed command-line flags (`parseArgs`): `--x v` a string, a bare `--x` true, a repeated flag a list */
 export type Flags = Record<string, string | boolean | string[]>
 
@@ -423,7 +422,6 @@ export interface LoadedExtension {
   setup: SetupUnit[]
 }
 
-// ---- setup units (references/extensions.md · references/setup.md) ----
 export type SetupInputKind = "string" | "path" | "rows" | "secret-path"
 
 /** One input a unit needs from the person, as `validateSetup` normalized it. */
@@ -546,8 +544,6 @@ export type TemplatePart = { text: string } | { field: string; filters: { name: 
 
 export type SchemaOp = (ws: Workspace, store: Store, ...args: never[]) => unknown
 
-// ---- `dreamteamer/testing` — a module's own suite on the real engine (src/testing.ts) ----
-
 /** One engine run: its exit status (null when it was ended on `timeoutMs`), stdout and stderr. */
 export interface RunResult {
   status: number | null
@@ -570,8 +566,6 @@ export interface TestWorkspace {
   engine: string
   dt(args: string[], opts?: RunOptions): RunResult
 }
-
-// ---- the nav document (nav.yaml, cr-dt-008) -------------------------------------------------------
 
 /** One entry of nav.yaml's tree: a collection by name, its long form, a folder, or a namespace folder. */
 export type NavEntry =

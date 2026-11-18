@@ -14,8 +14,6 @@ import { gitOk } from "../lib/git/gitOk.ts"
 import { writeNavDoc } from "../record/nav.ts"
 import type { NavPlan } from "../workspace/navFragments.ts"
 
-// ---- the verb -----------------------------------------------------------------------------------
-
 const gitIgnored = (root: string, rel: string): boolean => gitOk(root, ["check-ignore", "-q", "--", rel])
 
 /**

@@ -4,8 +4,6 @@ import { commentCount } from "../../lib/yaml.ts"
 import type { Workspace } from "../../types.ts"
 import type { Snapshot } from "../types.ts"
 
-// ---- the gate -------------------------------------------------------------------
-
 /**
  * A SOURCE WRITE MAY NOT SILENTLY LOSE A COMMENT — the invariant that would have caught the
  * re-serialization bug on the first rename instead of the twenty-seventh.

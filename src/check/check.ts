@@ -55,7 +55,6 @@ export function check(
   ;(addFormats as unknown as typeof addFormats.default)(ajv)
   ajv.addFormat("markdown", true) // rich-text marker, not a syntax to validate
 
-  // ---- load compiled descriptors ------------------------------------------------
   const descriptors = loadDescriptors(root)
   if (!descriptors) {
     console.error(`✖ ${NO_RUNTIME}`)
@@ -65,7 +64,7 @@ export function check(
   // learn what a workspace package.json is (see the split in CLAUDE.md).
   const namespaces = compiledNamespaces(root)
 
-  // ---- index all records: collection -> Map<id, filePath> ------------------------
+  // index all records: collection -> Map<id, filePath>
   const index = new Map()
   // placed collections only: id -> the parent id its file was FOUND under (null = the fallback root)
   const observed = new Map()
@@ -233,7 +232,6 @@ export function check(
     }
   }
 
-  // ---- validate each record -------------------------------------------------------
   const flag = (file: string, msg: string): void => {
     violations.push({ file: rel(file), layer: fileLayer.get(file), msg })
   }
@@ -311,7 +309,7 @@ export function check(
           checkRef(file, fieldPath, value, target, softTargets, soft, counted ? `${name}/${id}` : null)
         }
       }
-      // ---- placement: the FIELD is the intended owner, the FOLDER is observed placement ---
+      // placement: the FIELD is the intended owner, the FOLDER is observed placement
       // Reported, never repaired: a record found under the wrong company is either a hand move
       // (the field is right, run relocate) or a hand edit of the field (the folder is right, set
       // it back) and only a person knows which. A malformed owner value is skipped here — the
@@ -355,7 +353,7 @@ export function check(
     }
   }
 
-  // ---- relations: mirrors are DERIVED state ------------------------------------------
+  // relations: mirrors are DERIVED state
   // The owning side's foreign key is the truth; the mirror on the target is a cache of it, kept by
   // the store. So this is not a "do both sides agree" test between two equal authorities — check
   // recomputes what the owners imply and reports any mirror that has fallen behind. The fix is
@@ -471,7 +469,6 @@ export function check(
     layerOnly.get(key).refs.push({ file, field: fieldPath.join("."), value, referrer })
   }
 
-  // ---- report ----------------------------------------------------------------------
   // an extension's warning is printed and never counted: a disagreement worth seeing that must not turn
   // the workspace red (src/api.ts contributedViolations carries the mark)
   violations.push(...extra.filter(v => !v.warning))

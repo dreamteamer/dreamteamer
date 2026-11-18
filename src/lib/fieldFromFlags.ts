@@ -3,7 +3,6 @@ import type { Store } from "../store/Store.ts"
 import { fieldsOf, targetsOf } from "../record/descriptor.ts"
 import type { Field } from "../types.ts"
 
-// ---- the field verbs ----------------------------------------------------------------------------
 // A field is one entry of a descriptor's `fields` map, in the vocabulary a person writes (`type:
 // date`, `many: true`, `mirror_of: patient`). The verbs build that entry from flags, place it in the
 // source that declares it, and write it through the YAML document, so every comment and every

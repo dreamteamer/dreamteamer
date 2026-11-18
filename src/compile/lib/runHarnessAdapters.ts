@@ -79,7 +79,7 @@ export function runHarnessAdapters({
   const orient = (flavor: string): string =>
     orientationBlock(flavor, skillsIndex, sourceLayout, namespaces, version, entries, workspaceModule, extra)
 
-  // ---- claude-code: native skills/agents/commands dirs + CLAUDE.md block ----------
+  // claude-code: native skills/agents/commands dirs + CLAUDE.md block
   if (on("claude-code")) {
     let n = 0
     for (const [rt, e] of entries) {
@@ -111,7 +111,7 @@ export function runHarnessAdapters({
   }
   rootBlock("CLAUDE.md", on("claude-code") ? orient("claude-code") : null)
 
-  // ---- shared cross-agent skills mirror (.agents/skills) — codex/pi discover it,
+  // shared cross-agent skills mirror (.agents/skills) — codex/pi discover it,
   // cursor/gemini blocks point at it. written once no matter how many harnesses use it.
   const wantsMirror = on("codex") || on("pi") || on("cursor") || on("gemini-cli")
   if (wantsMirror) {
@@ -125,16 +125,15 @@ export function runHarnessAdapters({
     summary.push(`.agents/skills mirror (${n} files)`)
   }
 
-  // ---- codex + pi: both read root AGENTS.md; one block serves both ----------------
+  // codex + pi: both read root AGENTS.md; one block serves both
   rootBlock("AGENTS.md", on("codex") || on("pi") ? orient("agents-md") : null)
   if (on("codex")) summary.push("codex → AGENTS.md block")
   if (on("pi")) summary.push("pi → AGENTS.md block + .agents/skills")
 
-  // ---- gemini-cli: GEMINI.md is its context file -----------------------------------
+  // gemini-cli: GEMINI.md is its context file
   rootBlock("GEMINI.md", on("gemini-cli") ? orient("gemini") : null)
   if (on("gemini-cli")) summary.push("gemini-cli → GEMINI.md block")
 
-  // ---- the operator's own rules, one source, every harness -------------------------
   // Rendered VERBATIM. Nothing here reformats, wraps or summarises it: it is the operator's prose,
   // and the whole value is that what he wrote is what every agent reads.
   //
@@ -160,7 +159,7 @@ export function runHarnessAdapters({
   instructionsBlock("AGENTS.md", on("codex") || on("pi"))
   instructionsBlock("GEMINI.md", on("gemini-cli"))
 
-  // ---- cursor: native .mdc rule (alwaysApply) ---------------------------------------
+  // cursor: native .mdc rule (alwaysApply)
   if (on("cursor")) {
     // ⚠ `.mdc` is written WHOLE by `write()`, not through `writeBlock`, so removal is automatic: a
     // compile with no dreamteamer.md simply rewrites the file without the part.
@@ -170,7 +169,6 @@ export function runHarnessAdapters({
     summary.push("cursor → .cursor/rules/dreamteamer.mdc")
   }
 
-  // ---- harnesses an extension adapts --------------------------------------------------
   // A contributed adapter returns managed BLOCKS for user-owned files — never whole files, which
   // would need an ownership story of their own. Read-only indexes are handed in so an adapter never
   // re-parses the entries this module already parsed.
@@ -185,7 +183,7 @@ export function runHarnessAdapters({
     if (!blocks.includes(file) && !["CLAUDE.md", "AGENTS.md", "GEMINI.md"].includes(file)) writeBlock(root, file, null)
   }
 
-  // ---- prune: anything WE stamped that this compile didn't produce ------------------
+  // prune: anything WE stamped that this compile didn't produce
   const current = new Set(outputs)
   for (const dir of [".claude/skills", ".claude/agents", ".claude/commands", ".agents/skills", ".cursor/rules"]) {
     const abs = path.join(root, dir)

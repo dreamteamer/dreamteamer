@@ -1,6 +1,5 @@
 import path from "node:path"
 
-// ---- attached repos: `repos` records, materialized ON DEMAND ------------------------------
 // A `repos` record declares a related git repo and NOTHING about the schema — the other half of
 // what git_modules fuses together. Modules stay in package.json because compile can't read records
 // until they're restored (no .dreamteamer → no schemas → no readable records); attached repos have

@@ -21,7 +21,6 @@ export type {
 export const apiVersion = 1
 export { engineVersion, engineId } from "./runtime/runtime.ts"
 
-// ---- records ------------------------------------------------------------------------------------
 export { Store } from "./store/Store.ts"
 export { bodyField } from "./record/bodyField.ts"
 export { serialize } from "./record/serialize.ts"
@@ -37,7 +36,6 @@ export { historyDiff } from "./records/historyDiff.ts"
 export { deriveEvents } from "./changes/deriveEvents.ts"
 export { relationsOf } from "./record/relationsOf.ts"
 
-// ---- values, references and queries ---------------------------------------------------------------
 export { matchesFilter } from "./records/lib/matchesFilter.ts"
 export { unknownOperators } from "./record/unknownOperators.ts"
 export { looseEq } from "./records/lib/looseEq.ts"
@@ -79,12 +77,10 @@ export { displayOf } from "./record/displayOf.ts"
 export { slug, slugOrHash } from "./record/template.ts"
 export { load as loadYaml, dump as dumpYaml } from "./lib/yaml.ts"
 
-// ---- the compiled runtime (the boundary both halves read) -------------------------------------
 export { runtimeDir, readManifest, namespaces } from "./runtime/runtime.ts"
 export { RUNTIME_DIR } from "./runtime/consts.ts"
 export { loadDescriptors } from "./runtime/loadDescriptors.ts"
 
-// ---- read models a surface draws -------------------------------------------------------------------
 export { presentation } from "./record/presentation.ts"
 export { commandsFor } from "./records/commandsFor.ts"
 export { recordResolver } from "./records/lib/recordResolver.ts"
