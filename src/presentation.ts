@@ -27,6 +27,16 @@ import {
   isRuntime,
   isInternal,
 } from "./descriptor.ts"
+import type {
+  Descriptor,
+  Descriptors,
+  Display,
+  EnumChoice,
+  Field,
+  Presentation,
+  PresentationChoice,
+  PresentationCollection,
+} from "./record-types.ts"
 
 /** The design's default layouts, used where the resolved `display` (`displayOf`) does not state them. */
 const DEFAULT_LIST_LAYOUT = "table"
@@ -54,7 +64,7 @@ const WIRE_TYPES = new Set([
 const CHOICE_KEYS = ["description", "icon", "color", "background"]
 
 /** the projection for every collection */
-export function presentation(descriptors) {
+export function presentation(descriptors: Descriptors): Presentation {
   const all = [...descriptors.values()]
   // an owner field "has a relation" when some collection mirrors it — the far side names it
   const mirrored = new Set()
@@ -74,7 +84,7 @@ export function presentation(descriptors) {
     const body = bodyFieldOf(d)
     collections.push(collectionRow(d, declared))
     // the section a field is drawn in: its own `form_section`, else the authored section listing it
-    const sectionOf = new Map((form.sections ?? []).flatMap(s => s.fields.map(n => [n, s.title])).reverse())
+    const sectionOf = new Map((form.sections ?? []).flatMap(s => s.fields.map(n => [n, s.title] as const)).reverse())
     fields[d.name] = Object.entries(declared).map(([name, f]) => {
       const row = { collection: d.name, ...fieldRow(name, f, { required: required.has(name), body: name === body }) }
       const section = f.display?.form_section ?? sectionOf.get(name)
@@ -99,7 +109,13 @@ export function presentation(descriptors) {
 }
 
 /** the resolved `display` — authored over compile's defaults — with its four sub-blocks present */
-const displayOf = d => ({ nav: {}, list: {}, record: {}, form: {}, ...resolvedDisplayOf(d) })
+const displayOf = (d: Descriptor): Required<Display> => ({
+  nav: {},
+  list: {},
+  record: {},
+  form: {},
+  ...resolvedDisplayOf(d),
+})
 
 /** the keys of `src` that are defined, in `keys` order */
 function pick(src, keys) {
@@ -108,7 +124,7 @@ function pick(src, keys) {
   return out
 }
 
-function collectionRow(d, declared) {
+function collectionRow(d: Descriptor, declared: Record<string, Field>): PresentationCollection {
   const { nav, list, record, form } = displayOf(d)
   const drawn = n => declared[n] && !declared[n].deprecated // a deprecated field is drawn nowhere
   return {
@@ -235,7 +251,7 @@ function componentOptions(f) {
 
 /** One choice row: the value, its label (the value itself when none is authored), and the decoration
  *  keys the enum map carries — copied by name, and only when they are non-empty strings. */
-function choiceRow(value, entry = {}) {
+function choiceRow(value: string, entry: EnumChoice = {}): PresentationChoice {
   const row = { label: String(entry.label ?? value), value }
   for (const k of CHOICE_KEYS) if (typeof entry[k] === "string" && entry[k]) row[k] = entry[k]
   return row

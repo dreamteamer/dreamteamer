@@ -21,14 +21,25 @@ import { fileURLToPath } from "node:url"
 import { satisfies } from "./semver.ts"
 import { resolveNpm, childEnv } from "./checkout.ts"
 import { engineRun, freshWorkspace } from "./check-alone.ts"
+import type { EngineRun, EngineRunOptions } from "./workspace-types.ts"
+
+/** One engine run: its exit status (null when it was ended on `timeoutMs`), stdout and stderr. */
+export type Result = EngineRun
+export type RunOptions = EngineRunOptions
+/** A workspace `createWorkspace` made: its root, the engine it runs on, and `run` bound to it. */
+export interface Workspace {
+  root: string
+  engine: string
+  dt(args: string[], opts?: RunOptions): Result
+}
 
 /** The engine running this file: its package root. */
-export const ENGINE = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
+export const ENGINE: string = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const VERSION = JSON.parse(fs.readFileSync(path.join(ENGINE, "package.json"), "utf8")).version
 
-const made = []
+const made: string[] = []
 let hooked = false
-function tempDir(prefix) {
+function tempDir(prefix: string): string {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `dreamteamer-testing-${prefix}-`)))
   made.push(dir)
   if (!hooked) {
@@ -41,7 +52,7 @@ function tempDir(prefix) {
 }
 
 /** The CLI of the workspace's engine, in the workspace. */
-export function run(ws, args, opts = {}) {
+export function run(ws: Workspace, args: string[], opts: RunOptions = {}): Result {
   return engineRun(ws.engine, ws.root, args, { timeoutMs: 60_000, ...opts })
 }
 
@@ -50,16 +61,16 @@ export function run(ws, args, opts = {}) {
  * linked before init, so init finds it present and asks no registry; git-initialised and committed.
  * `engine` (a package root) wins, then `DT_ENGINE_DIR`, then the engine running this file.
  */
-export function createWorkspace({ engine } = {}) {
+export function createWorkspace({ engine }: { engine?: string } = {}): Workspace {
   const eng = engine ?? (process.env.DT_ENGINE_DIR ? path.resolve(process.env.DT_ENGINE_DIR) : ENGINE)
   const root = tempDir("ws")
-  const ws = { root, engine: eng, dt: (args, opts) => run(ws, args, opts) }
+  const ws: Workspace = { root, engine: eng, dt: (args, opts) => run(ws, args, opts) }
   freshWorkspace(root, eng)
   return ws
 }
 
 /** `npm pack` of a module folder into a temp folder; the tarball's path. */
-export function pack(moduleDir) {
+export function pack(moduleDir: string): string {
   const npm = resolveNpm()
   if (!npm) throw new Error("no npm beside this node or on PATH — pack needs it")
   const dest = tempDir("pack")
@@ -77,14 +88,14 @@ export function pack(moduleDir) {
 
 /** `dt install` of a name, a tarball path, or a module folder (packed first, so its `files` list is
  *  what is installed). Never throws on the engine's exit: 3 (an input still needed) is a result. */
-export function install(ws, spec, opts = {}) {
+export function install(ws: Workspace, spec: string, opts: RunOptions = {}): Result {
   const isFolder = !spec.endsWith(".tgz") && fs.existsSync(spec) && fs.statSync(spec).isDirectory()
   const target = isFolder ? pack(spec) : spec
   return run(ws, ["install", target, "--no-input"], { timeoutMs: 300_000, ...opts })
 }
 
 /** Does the running engine (or DT_ENGINE_DIR's) satisfy `range`? */
-export function engineMeets(range) {
+export function engineMeets(range: string): boolean {
   let version = VERSION
   if (process.env.DT_ENGINE_DIR) {
     try {

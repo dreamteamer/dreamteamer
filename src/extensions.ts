@@ -35,6 +35,14 @@ import { satisfies } from "./semver.ts"
 import { engineVersion } from "./runtime.ts"
 import { layerEntries } from "./workspace.ts"
 import { validateSetup } from "./setup-contract.ts"
+import type {
+  Contribution,
+  ContributedNote,
+  DeclaredExtension,
+  EngineApi,
+  LoadedExtension,
+  Workspace,
+} from "./workspace-types.ts"
 
 /** The keys a package.json `dreamteamer` block may carry — the workspace's and a module's alike. */
 export const MANIFEST_KEYS = [
@@ -85,7 +93,7 @@ export function v1ManifestRefusal(block, where) {
   return `${where}: the dreamteamer block is in the v1 spelling (${what}).\n  convert the workspace once: ${CONVERTER}\n  then dt compile and dt check — UPDATING.md has the walk.`
 }
 
-export const EXTENSION_API = 1
+export const EXTENSION_API = 1 as const
 
 /** What `dt check` holds every discovered package's manifest to, beyond the `dreamteamer` block: the
  *  engine never under `dependencies` — npm nests a second engine there whenever the pin differs from the
@@ -122,9 +130,9 @@ const CONTRIBUTION_KEYS = new Set([
  *  like its `bin/`, so it needs no package and no npm — and it SHADOWS a dependency of the same name,
  *  the rule module content already follows. A module DISABLED by a bare `dreamteamer.disable` entry
  *  is not an extension either — disabling is how a workspace keeps a module and switches it off. */
-export function declaredExtensions(ws) {
+export function declaredExtensions(ws: Workspace): DeclaredExtension[] {
   const disable = ws.pkg?.dreamteamer?.disable ?? []
-  const out = []
+  const out: DeclaredExtension[] = []
   const seen = new Set()
   const consider = (dir, fallback) => {
     let pkg
@@ -213,10 +221,14 @@ export const isPackageEntry = d => typeof d === "string" && d.startsWith("module
  * collide with core or with each other. `reserved` is what core already owns: its verbs, kinds and
  * harness ids.
  */
-export async function loadExtensions(ws, api, reserved = {}) {
+export async function loadExtensions(
+  ws: Workspace,
+  api: EngineApi,
+  reserved: { verbs?: Iterable<string>; kinds?: Iterable<string>; harnesses?: Iterable<string> } = {}
+): Promise<LoadedExtension[]> {
   const v1 = v1ManifestRefusal(ws.pkg?.dreamteamer, "package.json")
   if (v1) throw new Error(v1)
-  const loaded = []
+  const loaded: LoadedExtension[] = []
   const owner = { command: new Map(), kind: new Map(), harness: new Map(), unit: new Map() }
   for (const r of reserved.verbs ?? []) owner.command.set(r, "the engine")
   for (const r of reserved.kinds ?? []) owner.kind.set(r, "the engine")
@@ -247,7 +259,7 @@ export async function loadExtensions(ws, api, reserved = {}) {
         `extension ${ext.name} targets extension API ${mod.apiVersion}; this engine (${api.engineVersion?.() ?? "?"}) speaks ${EXTENSION_API}`
       )
     }
-    const c = (await mod.default(api)) ?? {}
+    const c: Contribution = (await mod.default(api)) ?? {}
     for (const k of Object.keys(c))
       if (!CONTRIBUTION_KEYS.has(k))
         throw new Error(
@@ -312,8 +324,8 @@ export async function loadExtensions(ws, api, reserved = {}) {
  * text, is dropped; a throw is ONE line attributed to the extension (`error: true`), never a failed
  * `dt next` — what a record can do next does not depend on an optional tool being healthy.
  */
-export function contributedNotes(ws, collection, ids = []) {
-  const out = []
+export function contributedNotes(ws: Workspace, collection: string, ids: string[] = []): ContributedNote[] {
+  const out: ContributedNote[] = []
   const asked = new Set(ids)
   for (const e of (ws.extensions ?? []).filter(x => x.next)) {
     try {

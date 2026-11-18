@@ -9,6 +9,8 @@ import { execFileSync } from "node:child_process"
 import path from "node:path"
 import { RUNTIME_DIR, readManifest } from "./runtime.ts"
 import { storageOf } from "./descriptor.ts"
+import type { HistoryDiff, HistoryEntry } from "./record-types.ts"
+import type { Store } from "./store.ts"
 
 /** A record under an env-pointed root outside the workspace has no repo here, so no past: said in
  *  one sentence rather than as git's "outside repository". */
@@ -65,7 +67,7 @@ function trackedPaths(store, file, cwd) {
 /** The repo a record's file is committed in: a module-owned or layer record's past is in that clone. */
 const repoOf = (store, descriptor, file) => path.resolve(store.root, store.repoOfFile(descriptor, file))
 
-export function history(store, collection, id) {
+export function history(store: Store, collection: string, id: string): HistoryEntry[] {
   const { file, descriptor } = store.read(collection, id)
   assertInRepo(descriptor, collection, id)
   const cwd = repoOf(store, descriptor, file)
@@ -83,7 +85,7 @@ export function history(store, collection, id) {
 }
 
 /** The patch one revision applied to this record. `hash~1` means the ROOT commit has no diff. */
-export function historyDiff(store, collection, id, hash = "HEAD") {
+export function historyDiff(store: Store, collection: string, id: string, hash = "HEAD"): HistoryDiff {
   commitArg(hash)
   const { file, descriptor } = store.read(collection, id)
   assertInRepo(descriptor, collection, id)

@@ -10,7 +10,7 @@
 // `dreamteamer` (src/api.js) re-exports everything here, so a node consumer never needs two imports.
 
 /** Bumped on a breaking change to either public entry or to the extension contract. */
-export const apiVersion = 1
+export const apiVersion = 1 as const
 export { engineVersion, engineId } from "./runtime.ts"
 
 // ---- records ------------------------------------------------------------------------------------

@@ -15,8 +15,9 @@ import path from "node:path"
 import { load } from "./yaml.ts"
 import { storageOf } from "./descriptor.ts"
 import { normalizeNamespaces } from "./namespace.ts"
+import type { Descriptor, Descriptors, Manifest } from "./record-types.ts"
 
-export const RUNTIME_DIR = ".dreamteamer"
+export const RUNTIME_DIR = ".dreamteamer" as const
 
 /**
  * `name@version` of the RUNNING engine — the dev clone or the installed copy, whichever loaded.
@@ -32,7 +33,7 @@ export const RUNTIME_DIR = ".dreamteamer"
  * manifest either way — and a failure to read it is `dreamteamer@unknown` rather than a throw,
  * because a version string is never worth crashing a compile or a proof over.
  */
-export function engineId() {
+export function engineId(): string {
   try {
     const p = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"))
     return `${p.name}@${p.version}`
@@ -42,8 +43,8 @@ export function engineId() {
 }
 
 /** Bare semver of the running engine — what the manifest's `engine` key and every ledger row carry. */
-export function engineVersion() {
-  return engineId().split("@").pop()
+export function engineVersion(): string {
+  return engineId().split("@").pop()!
 }
 
 /**
@@ -61,7 +62,7 @@ export const DERIVED_KINDS = ["modules"]
  * `git log`/`git diff` and the `?sort=` comparator were each hand-copied into the extension and
  * went wrong in both places.
  */
-export function sourceHint(d) {
+export function sourceHint(d: Descriptor): string {
   const p = storageOf(d).path
   return DERIVED_KINDS.includes(p)
     ? "the source it was projected from (for `modules`, the module's package.json)"
@@ -71,11 +72,11 @@ export function sourceHint(d) {
 /** One message, two callers with different manners: the store throws it, `check` prints it. */
 export const NO_RUNTIME = "no compiled runtime — run `dreamteamer compile` first"
 
-export function runtimeDir(root) {
+export function runtimeDir(root: string): string {
   return path.join(root, RUNTIME_DIR)
 }
 
-export function readManifest(root) {
+export function readManifest(root: string): Manifest | null {
   try {
     return load(fs.readFileSync(path.join(runtimeDir(root), "manifest.yaml"), "utf8"))
   } catch {
@@ -84,7 +85,7 @@ export function readManifest(root) {
 }
 
 /** A kind's folder inside the compiled runtime. */
-export function runtimeKindDir(root, kind) {
+export function runtimeKindDir(root: string, kind: string): string {
   return path.join(runtimeDir(root), kind)
 }
 
@@ -97,10 +98,10 @@ export const STALE_RUNTIME = "the compiled runtime predates descriptor format v2
  * The ONE place descriptors are read. A descriptor without its `compiled` block was written by an
  * engine that read v1 sources; it is refused with the one message that fixes it, rather than read.
  */
-export function loadDescriptors(root) {
+export function loadDescriptors(root: string): Descriptors | null {
   const dir = runtimeKindDir(root, "collections")
   if (!fs.existsSync(dir)) return null
-  const out = new Map()
+  const out: Descriptors = new Map()
   // RECURSIVE, because a namespaced collection compiles to `collections/<ns>/<name>.collection.yaml`
   // and this loop used to read exactly one directory level. ⚠ That was a SILENT failure, not an
   // error: compile wrote the nested file and reported ✔, this returned a Map without it, and the
@@ -115,7 +116,7 @@ export function loadDescriptors(root) {
 }
 
 /** Every `*.collection.yaml` under a directory, at any depth, in a stable order. */
-function walkDescriptors(dir, out = []) {
+function walkDescriptors(dir: string, out: string[] = []): string[] {
   for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
     if (e.name.startsWith(".")) continue
     const p = path.join(dir, e.name)
@@ -128,7 +129,7 @@ function walkDescriptors(dir, out = []) {
 /** What compile recorded for the exports manifest (cr-dt-004): this workspace's package name and data
  *  folder, and per layer `{ name, root, data, package, reads, narrowed }` — `layers: null` from a runtime
  *  older than them, which a caller reads as "nothing is known". */
-export function exportsFacts(root) {
+export function exportsFacts(root: string) {
   const m = readManifest(root)
   return { own: m?.package ?? null, data: m?.data_path ?? "data", layers: m?.layers ?? null }
 }
@@ -139,7 +140,7 @@ export function exportsFacts(root) {
  * dependency on the compiled artifact (the `sourceRoots()` precedent), and so a runtime compiled
  * before namespaces existed answers `[]` instead of throwing.
  */
-export function namespaces(root) {
+export function namespaces(root: string): string[] {
   return normalizeNamespaces(readManifest(root)?.namespaces)
 }
 
@@ -152,7 +153,7 @@ export function namespaces(root) {
  * Read from the manifest rather than by re-running module discovery, which is both cheaper and more
  * honest: the manifest records what was actually compiled, so a shadowed copy is already excluded.
  */
-export function sourceRoots(root) {
+export function sourceRoots(root: string): string[] {
   const modules = readManifest(root)?.modules ?? []
   // ⚠ EITHER SPELLING. `location` is what this engine writes; `channel` is what every runtime on
   // disk before 0.19.0 has, and a stale runtime is the NORMAL state between a `git pull` and the

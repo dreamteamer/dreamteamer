@@ -31,27 +31,27 @@ export * from "./records-api.ts"
  * The handle every other call takes: `{ root, pkg, extensions }`. Performs no compile, install,
  * network call or write, and never changes the process cwd.
  */
-export async function openWorkspace(start = process.cwd()) {
-  const ws = findWorkspace(start)
+export async function openWorkspace(start = process.cwd()): Promise<Workspace & { extensions: LoadedExtension[] }> {
+  const ws: Workspace = findWorkspace(start)
   ws.extensions = await loadExtensions(ws, self, {
     verbs: CORE_VERBS,
     kinds: [...KINDS, ...DERIVED_KINDS],
     harnesses: KNOWN_HARNESSES,
   })
-  return ws
+  return ws as Workspace & { extensions: LoadedExtension[] }
 }
 export { findWorkspace }
 export { EXTENSION_API, declaredExtensions, contributedNotes } from "./extensions.ts"
 /** An extension's `check` may return `{ file, message, warning: true }`: printed as a warning, never a
  *  violation. A module reads this flag to know the engine it runs on has the channel — on one without
  *  it, a warning item would be counted as a violation. */
-export const CHECK_WARNINGS = true
+export const CHECK_WARNINGS = true as const
 
 /** What every extension's `check` reports on `ws`, as `check(ws, { extra })` takes it — attributed to
  *  the extension, a throw being a violation. `dt check` and an in-process caller get one verdict. An
  *  item the extension marked `warning: true` keeps the mark: `check` prints it and does not count it. */
-export async function contributedViolations(ws) {
-  const out = []
+export async function contributedViolations(ws: Workspace): Promise<CheckExtra[]> {
+  const out: CheckExtra[] = []
   // every discovered module's manifest, held to the dependency rule — the workspace's own root and the
   // engine are not modules anybody installs
   try {
@@ -82,7 +82,7 @@ export async function contributedViolations(ws) {
         out.push({
           file: v.file ?? e.name,
           msg: `${v.message} (${e.name})`,
-          ...(v.warning === true ? { warning: true } : {}),
+          ...(v.warning === true ? { warning: true as const } : {}),
         })
     } catch (err) {
       out.push({ file: e.name, msg: `check failed — ${err.message}` })
@@ -137,6 +137,8 @@ export {
   renameEntity,
   setEntityFrontmatter,
 } from "./schema-ops.ts"
+import type { CheckExtra } from "./record-types.ts"
+import type { LoadedExtension, Workspace } from "./workspace-types.ts"
 export { init, ensureRepo, ensureAllRepos, listRepos, installClone } from "./init.ts"
 
 // ---- the checkout: which one this is, and how it becomes ready ---------------------------------
@@ -146,7 +148,11 @@ export { describeCheckout, resolveNpm, childEnv, readHookInput, readStdin } from
  *  `opts.open` — `openWorkspace` unless a caller injects another — so the extensions npm just
  *  installed take part in that compile. The one name here that supplies a default rather than
  *  re-exporting: the checkout layer cannot import the opener that activates extensions. */
-export const installCommand = (ws, argv, opts = {}) => installCheckout(ws, argv, { open: openWorkspace, ...opts })
+export const installCommand = (
+  ws: Workspace,
+  argv: string[],
+  opts: { open?: (at: string) => Promise<Workspace> } = {}
+): Promise<number> => installCheckout(ws, argv, { open: openWorkspace, ...opts })
 
 // ---- CLI helpers an extension command reuses -----------------------------------------------------
 export { emit, parseArgs } from "./collections-cli.ts"

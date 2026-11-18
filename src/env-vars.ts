@@ -10,9 +10,10 @@
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
+import type { EnvContext, FoundWorkspace } from "./record-types.ts"
 
-export function parseEnvValues(text) {
-  const out = new Map()
+export function parseEnvValues(text: string): Map<string, string> {
+  const out = new Map<string, string>()
   // KEY=value with optional `export `, optional quotes; value is whatever follows on the SAME line
   const re = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=("(?:[^"\\]|\\.)*"|'[^']*'|[^\n]*)$/gm
   let m
@@ -28,7 +29,7 @@ export function parseEnvValues(text) {
  *  the values this machine's `.env` carries, and the root. One builder rather than three lines at
  *  each call site — `dt resolve` and `repos ensure` disagreeing about which vars are declared would
  *  be a path that renders in one verb and refuses in the other. */
-export function envContext(ws) {
+export function envContext(ws: FoundWorkspace): EnvContext {
   const envFile = path.join(ws.root, ".env")
   return {
     env: parseEnvValues(fs.existsSync(envFile) ? fs.readFileSync(envFile, "utf8") : ""),
@@ -39,7 +40,7 @@ export function envContext(ws) {
 
 const SUPPORTED = "supported: ${env:NAME}, ${workspaceFolder}, ${userHome}"
 
-export function renderTemplate(str, { env, workspaceFolder, declared }) {
+export function renderTemplate(str: string, { env, workspaceFolder, declared }: EnvContext): string {
   return str.replace(/\$\{([A-Za-z]+)(?::([A-Za-z0-9_]*))?\}/g, (whole, ns, arg) => {
     if (arg === undefined) {
       if (ns === "workspaceFolder") return workspaceFolder

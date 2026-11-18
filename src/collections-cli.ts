@@ -93,7 +93,7 @@ import {
  * at exit 0. Hence the `fd` argument: `help` writes through here now, and so does the USAGE echoed
  * on an unknown verb (fd 2, same failure mode).
  */
-export const emit = (s, fd = 1) => {
+export const emit = (s: string, fd = 1): void => {
   const buf = Buffer.from(s + "\n")
   let off = 0
   while (off < buf.length) {
@@ -1410,10 +1410,13 @@ function* parseEach(store, collection, onError) {
  * conjunctive CONDITION (`--filter`, in list), or the flag holds one value and a repeat is a
  * MISTAKE (`oneValue`, and the view writer). Silence is not one of them.
  */
-export function parseArgs(args) {
-  const flags = {}
-  const pos = []
-  const put = (k, v) => {
+/** A flag's value: the text after it, `true` when bare, every value in order when repeated. */
+export type FlagValue = string | boolean | (string | boolean)[]
+
+export function parseArgs(args: string[]): { flags: Record<string, FlagValue>; pos: string[] } {
+  const flags: Record<string, FlagValue> = {}
+  const pos: string[] = []
+  const put = (k: string, v: string | boolean) => {
     flags[k] = k in flags ? [].concat(flags[k], v) : v
   }
   for (let i = 0; i < args.length; i++) {

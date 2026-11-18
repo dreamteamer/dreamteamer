@@ -26,6 +26,7 @@
 // This module is deliberately PURE — the declared list arrives as an argument. compile validates it
 // and writes it into the manifest; runtime.js hands it to the record layer. Nothing here reads a
 // file, so all of it is unit-testable without a workspace.
+import type { Ref } from "./record-types.ts"
 
 /** Never a namespace: it would give the default namespace a second, prefixed spelling. */
 export const RESERVED_NAMESPACES = new Set(["default"])
@@ -40,9 +41,9 @@ const SEGMENT = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
  * for the namespace `work`, making the collection `clients` and the id `acme` on a workspace where
  * `work/clients` is the namespace and the collection is something else entirely.
  */
-export function normalizeNamespaces(list) {
+export function normalizeNamespaces(list: unknown): string[] {
   if (!Array.isArray(list)) return []
-  const seen = new Set()
+  const seen = new Set<string>()
   for (const raw of list) {
     if (typeof raw !== "string") continue
     const ns = raw.trim().replace(/^\/+|\/+$/g, "")
@@ -165,7 +166,7 @@ export function unqualifiedProblems(collectionNames, namespaces) {
  * check, `check`'s report, the extension's go-to-definition — goes through here, so a namespace can
  * never mean one thing on write and another on read.
  */
-export function parseRef(ref, namespaces = []) {
+export function parseRef(ref: unknown, namespaces: string[] = []): Ref | null {
   if (typeof ref !== "string" || !ref) return null
   for (const ns of namespaces) {
     if (!ref.startsWith(ns + "/")) continue

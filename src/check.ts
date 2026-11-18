@@ -43,7 +43,11 @@ import {
   idsOf,
   recordTitleOf,
 } from "./descriptor.ts"
-export function check({ root }, { extra = [], strictExport = false } = {}) {
+import type { CheckExtra, WorkspaceRoot } from "./record-types.ts"
+export function check(
+  { root }: WorkspaceRoot,
+  { extra = [], strictExport = false }: { extra?: CheckExtra[]; strictExport?: boolean } = {}
+): 0 | 1 | 2 {
   const RUNTIME = runtimeDir(root)
   const rel = p => path.relative(root, p)
 
@@ -172,7 +176,7 @@ export function check({ root }, { extra = [], strictExport = false } = {}) {
       if (shape === "folder") {
         // a FILE record at the root of a folder-shape collection is the state a collection is in
         // right after its shape changed — named as such, with the verb that finishes the change
-        const asFile = { ...d, storage: { ...d.storage, shape: "file" } }
+        const asFile = { ...d, storage: { ...d.storage, shape: "file" as const } }
         for (const entry of fs.readdirSync(rootDir).sort()) {
           if (entry.startsWith(".")) continue
           const p = path.join(rootDir, entry)

@@ -45,6 +45,8 @@ import {
 import { excludedFromKind, disablesPackage, isPackageEntry, MANIFEST_KEYS, v1ManifestRefusal } from "./extensions.ts"
 import { compileCollections, v1Refusal } from "./compile-collections.ts"
 import { storageOf, fieldsOf, displayOf, targetsOf } from "./descriptor.ts"
+import type { WorkspacePkg } from "./record-types.ts"
+import type { DiscoveredModule, ModuleDiscovery, Staleness, Workspace } from "./workspace-types.ts"
 export { engineId, engineVersion, readManifest }
 
 /**
@@ -71,7 +73,15 @@ export function titleCase(id) {
  *  (`sourceKinds`, src/extensions.js) — every enumeration below reads `kindsOf(ws)`, never this alone. */
 export { MANIFEST_KEYS } from "./extensions.ts"
 
-export const KINDS = ["collections", "skills", "agents", "commands", "command-bindings", "ui-views", "mixins"]
+export const KINDS: readonly string[] = [
+  "collections",
+  "skills",
+  "agents",
+  "commands",
+  "command-bindings",
+  "ui-views",
+  "mixins",
+]
 const FOLDER_KINDS = new Set(["skills"]) // folder-shape entities: copy the whole record folder
 
 /** Every contributed kind of the workspace's loaded extensions, as `{ kind, exclude, extension }`. */
@@ -195,15 +205,15 @@ export const locationOf = (source, wsRoot) =>
 // same NAME in two channels = the same module delivered twice — the more local
 // copy wins (npm-link semantics); shadows are returned for warning/status, never
 // compiled. different-name identity collisions stay hard errors downstream.
-export function discoverModules(root, pkg) {
-  const byName = new Map() // name -> {name, root, channel}
-  const shadows = [] // {name, winner, loser} — channels
+export function discoverModules(root: string, pkg: WorkspacePkg): ModuleDiscovery {
+  const byName = new Map<string, DiscoveredModule>() // name -> {name, root, channel}
+  const shadows: ModuleDiscovery["shadows"] = [] // {name, winner, loser} — channels
   // A BARE `dreamteamer.disable` entry names a whole module; `<module>/<entity>` names one entity and
   // is applied per source at compile time. The bare form is what lets a workspace take a PACKAGE of
   // modules and keep only the ones it wants — a disabled module is simply never discovered, so every
   // caller (compile, status, install) sees the same set.
   const disable = pkg?.dreamteamer?.disable ?? []
-  const disabledHits = new Set()
+  const disabledHits = new Set<string>()
   // A clone that is a WORKSPACE (its own manifest names `workspace_module`), or whose entry lists
   // `records`, is a RECORD LAYER — another workspace's data read here — never a bundle: its own
   // modules/ would otherwise unpack and collide with ours. With `module: true` its ONE workspace
@@ -280,7 +290,7 @@ export function discoverModules(root, pkg) {
   // as its own manifest names it — as a git-channel source, the way a bundle contributes its modules.
   // Kept out of `byName` on purpose: a name another channel holds must be REFUSED, never shadowed, and
   // compile does that, naming the entry. A clone not on disk contributes nothing, like any layer.
-  const layerModules = []
+  const layerModules: DiscoveredModule[] = []
   const layerRefusals = []
   for (const l of layerList) {
     const clone = path.join(gitDir, l.name)
@@ -390,7 +400,7 @@ function pkgNameAt(dir) {
   }
 }
 
-export function compile(ws) {
+export function compile(ws: Workspace): 0 {
   const { root, pkg } = ws
   const extensions = ws.extensions ?? []
   const contributed = contributedKinds(ws)
@@ -502,7 +512,7 @@ export function compile(ws) {
   const moduleDeps = new Map() // module name -> [module names]      — HARD, must be acyclic
   const modulePeers = new Map() // module name -> [collection names]  — SOFT, cannot cycle
   const moduleNamespaces = new Map() // module name -> [namespaces it DECLARES] (§8, option A)
-  const moduleVersions = new Map() // module name -> its package.json version
+  const moduleVersions = new Map<string, string>() // module name -> its package.json version
   const moduleFloors = new Map() // module name -> npm `peerDependencies` — a version floor on a sibling module
   const modulePresets = new Map() // module preset name -> { member name: exact version } (CR-dt-008)
   const moduleLocalAssets = [] // {rel, owner, base} — validated with the workspace's own, below
@@ -876,7 +886,7 @@ export function compile(ws) {
     if (!fs.existsSync(path.join(root, l.root)))
       console.warn(`⚠ layer ${l.name} (${l.root}) is not installed — its records are not read; run dreamteamer install`)
 
-  const disabled = new Set(config.disable ?? [])
+  const disabled = new Set<string>(config.disable ?? [])
   const disabledHits = new Set(disabledModules) // bare entries were applied at discovery
 
   /** entries: runtime-relative path -> { sources: [workspace-relative], bytes } */
@@ -1677,10 +1687,10 @@ function prevManifestNamespaces(root) {
 
 // staleness: does any manifest entry's SOURCE differ from what was compiled, or is a
 // source file missing/new? used by `status` and warned about at every tool entry.
-export function staleness(root) {
+export function staleness(root: string): Staleness {
   const manifest = readManifest(root)
   if (!manifest) return { compiled: false, stale: [], message: "no compiled runtime — run `dreamteamer compile`" }
-  const stale = []
+  const stale: string[] = []
   for (const [rt, e] of Object.entries(manifest.entries ?? {})) {
     for (const src of e.sources) {
       // sources are {path, hash}; tolerate the pre-merge string form
@@ -1773,7 +1783,7 @@ export function staleness(root) {
   return { compiled: true, stale, manifest }
 }
 
-export function warnIfStale(root) {
+export function warnIfStale(root: string): Staleness {
   const s = staleness(root)
   if (!s.compiled) console.warn(`⚠ ${s.message}`)
   else if (s.stale.length)

@@ -49,6 +49,7 @@ const LAYERS = {
     "fields",
     "descriptor",
     "exports",
+    "record-types",
   ],
   // the compiled artifact both halves share
   boundary: ["runtime"],
@@ -75,6 +76,7 @@ const LAYERS = {
     "update",
     "nav-fragments",
     "unread-data",
+    "workspace-types",
   ],
   // entry points; span both halves by definition (the CLI, the public API, the descriptor→UI read model)
   surface: ["cli", "collections-cli", "presentation", "api", "records-api", "exports-cli", "testing", "update-setup"],

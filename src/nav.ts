@@ -16,6 +16,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { load, dump } from "./yaml.ts"
 import { atomicWrite } from "./store.ts"
+import type { NavDoc } from "./record-types.ts"
 
 export const NAV_FILE = "nav.yaml"
 const HEADER = "# The left nav of this workspace. Drag and drop writes this file; so may you."
@@ -50,7 +51,7 @@ function eachEntry(items, visit) {
 }
 
 /** The text of a nav.yaml, as a NavDoc. Pure. An empty file, or one with neither key, is an empty document. */
-export function parseNavDoc(text) {
+export function parseNavDoc(text: string): NavDoc {
   let raw
   try {
     raw = load(String(text))
@@ -67,14 +68,14 @@ export function parseNavDoc(text) {
 }
 
 /** A NavDoc as the text of a nav.yaml: the header line, `tree`, and `hidden` only when it holds a name. Pure. */
-export function serializeNavDoc(doc) {
-  const body = { tree: doc.tree }
+export function serializeNavDoc(doc: NavDoc): string {
+  const body: Partial<NavDoc> = { tree: doc.tree }
   if (doc.hidden.length) body.hidden = doc.hidden
   return `${HEADER}\n${dump(body).replace(/\n+$/, "")}\n`
 }
 
 /** `<root>/nav.yaml` parsed, or null when there is none. Any other read failure is a NavDocError. */
-export function readNavDoc(root) {
+export function readNavDoc(root: string): NavDoc | null {
   let text
   try {
     text = fs.readFileSync(path.join(root, NAV_FILE), "utf8")
@@ -86,14 +87,17 @@ export function readNavDoc(root) {
 }
 
 /** The one writer every host uses: the whole document, atomically. */
-export function writeNavDoc(root, doc) {
+export function writeNavDoc(root: string, doc: NavDoc): boolean {
   return atomicWrite(path.join(root, NAV_FILE), serializeNavDoc(doc))
 }
 
 /** What `dt check` reports about a document: names that resolve to nothing, names listed twice. Never throws. */
-export function validateNavDoc(doc, { collections, namespaces = [] }) {
+export function validateNavDoc(
+  doc: NavDoc,
+  { collections, namespaces = [] }: { collections: Set<string>; namespaces?: string[] }
+): { warning: string }[] {
   const declared = new Set(namespaces)
-  const warnings = []
+  const warnings: { warning: string }[] = []
   const warn = warning => warnings.push({ warning })
   const seen = new Set()
   const twice = new Set()

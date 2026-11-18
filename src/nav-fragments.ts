@@ -18,6 +18,7 @@ import { loadDescriptors } from "./runtime.ts"
 import { moduleOf, overlaidByOf } from "./descriptor.ts"
 import { findWorkspace } from "./workspace.ts"
 import { parseNavDoc, readNavDoc, writeNavDoc, placedNames, mergeFragment, NavDocError, NAV_FILE } from "./nav.ts"
+import type { FoundWorkspace, NavDoc } from "./record-types.ts"
 
 export const NAV_SETTINGS_LINE = "nav: settings found, migrated on the next open of the editor or dt web"
 export const NAV_GUARD_LINE =
@@ -124,7 +125,10 @@ const readPkg = dir => {
  * so one bad fragment refuses the whole call. Returns `{ doc, placed, changed }`, or
  * `{ doc: null, placed: [], changed: false, skipped: 'settings' }` while old nav settings stand.
  */
-export function planNavFragments(ws, { names, ignoreSettings = false } = {}) {
+export function planNavFragments(
+  ws: FoundWorkspace,
+  { names, ignoreSettings = false }: { names?: string[]; ignoreSettings?: boolean } = {}
+): { doc: NavDoc | null; placed: string[]; changed: boolean; skipped?: "settings" } {
   const { modules } = discoverModules(ws.root, ws.pkg)
   const byName = new Map()
   for (const m of modules) byName.set(m.name, { ...m, manifest: readPkg(m.root) ?? {} })
@@ -207,7 +211,10 @@ export function planNavFragments(ws, { names, ignoreSettings = false } = {}) {
  * calls after its own settings migration; install and update run the same plan inside their compile
  * step. Throws NavFragmentRefusal (and a NavDocError for a nav.yaml it cannot read) and writes nothing.
  */
-export function applyNavFragments(root, { names, ignoreSettings = false } = {}) {
+export function applyNavFragments(
+  root: string,
+  { names, ignoreSettings = false }: { names?: string[]; ignoreSettings?: boolean } = {}
+): { written: boolean; placed: string[]; skipped?: "settings" } {
   const found = findWorkspace(root)
   const plan = planNavFragments({ root: found.root, pkg: found.pkg }, { names, ignoreSettings })
   if (plan.skipped) return { written: false, placed: [], skipped: plan.skipped }

@@ -13,6 +13,8 @@
 import { bodyField } from "./store.ts"
 import { fieldsOf } from "./descriptor.ts"
 import { enumValues } from "./fields.ts"
+import type { DistinctValues } from "./record-types.ts"
+import type { Store } from "./store.ts"
 
 /** Above this many distinct values a dropdown stops being a dropdown — report and stop counting. */
 export const DEFAULT_LIMIT = 50
@@ -28,7 +30,12 @@ export const DEFAULT_LIMIT = 50
  * Bodies are skipped outright — a markdown body has one distinct value per record and counting
  * them is pure waste. Objects are skipped too: there is no sane dropdown entry for a subtree.
  */
-export function distinctValues(store, collection, field, { limit = DEFAULT_LIMIT } = {}) {
+export function distinctValues(
+  store: Store,
+  collection: string,
+  field: string,
+  { limit = DEFAULT_LIMIT }: { limit?: number } = {}
+): DistinctValues {
   const d = store.descriptor(collection)
   const prop = fieldsOf(d)[field]
   if (!prop && field !== "id") {
@@ -53,7 +60,7 @@ export function distinctValues(store, collection, field, { limit = DEFAULT_LIMIT
   }
 
   const bf = bodyField(d)
-  const counts = new Map()
+  const counts = new Map<unknown, number>()
   for (const { id, fields } of store.readAll(collection)) {
     const raw = field === "id" ? id : fields[field]
     if (raw == null || raw === "" || (bf && field === bf)) continue

@@ -10,6 +10,8 @@ import { relationsOf } from "./relations.ts"
 import { splitRef, canonicalCollection } from "./ref.ts"
 
 import { storageOf } from "./descriptor.ts"
+import type { CommitOptions, CommitResult, CommitRow } from "./record-types.ts"
+import type { Store } from "./store.ts"
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
 // reached the user's terminal. stdout stays piped because we read it.
@@ -465,7 +467,7 @@ function sample(root, repo, dirs, descriptors) {
 
 /** One subject for one repo's rows. The git status letter IS the verb, which is why a
  *  single-record commit keeps exactly the subject it had when writes committed themselves. */
-export function composeSubject(rows) {
+export function composeSubject(rows: CommitRow[]): string {
   if (rows.length === 1) return `dreamteamer: ${rows[0].collection} ${rows[0].verb} ${rows[0].id}`
   const collections = [...new Set(rows.map(r => r.collection))].sort()
   if (collections.length === 1) {
@@ -491,7 +493,7 @@ function assertResolvable(store, records, matched) {
   }
 }
 
-export function commitPending(store, opts = {}) {
+export function commitPending(store: Store, opts: CommitOptions = {}): CommitResult[] {
   // ⚠ THE WHOLE VERB TAKES THE WRITE LOCK, PLANNING INCLUDED — not just the two git calls at the
   // end. `dt commit` was the one write path that took no lock at all: it sampled `git status`,
   // planned a sweep from what it saw, then ran `git add` and `git commit`. Two sessions doing that
@@ -511,7 +513,7 @@ export function commitPending(store, opts = {}) {
   return store.withWriteLock(() => commitPlan(store, opts))
 }
 
-function commitPlan(store, { only = [], message, dryRun = false } = {}) {
+function commitPlan(store: Store, { only = [], message, dryRun = false }: CommitOptions = {}): CommitResult[] {
   // Targets are resolved BEFORE anything is committed, so one bad target in a list of good ones
   // leaves the whole tree untouched rather than committing a prefix of what was asked for.
   const targets = parseTargets(store.descriptors, only)

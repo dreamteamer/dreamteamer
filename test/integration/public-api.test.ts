@@ -114,19 +114,19 @@ describe("dreamteamer (the public API)", () => {
   // loader or the CLI would pull `node:url`/`node:crypto`/`node:os` in at import time and the app
   // would die on load — the one failure its own tests cannot see until a bundle is built.
   test("dreamteamer/records reaches only the record half and three node builtins", () => {
-    const { files, bare } = closure("records-api.js")
+    const { files, bare } = closure("records-api.ts")
     for (const f of [
-      "compile.js",
-      "cli.js",
-      "extensions.js",
-      "checkout.js",
-      "init.js",
-      "harnesses.js",
-      "schema-ops.js",
-      "api.js",
-      "env-vars.js",
+      "compile.ts",
+      "cli.ts",
+      "extensions.ts",
+      "checkout.ts",
+      "init.ts",
+      "harnesses.ts",
+      "schema-ops.ts",
+      "api.ts",
+      "env-vars.ts",
     ]) {
-      assert.ok(!files.has(f), `records-api.js reaches ${f}`)
+      assert.ok(!files.has(f), `records-api.ts reaches ${f}`)
     }
     const builtins = [...bare].filter(b => b.startsWith("node:")).sort()
     assert.deepEqual(builtins, ["node:child_process", "node:fs", "node:path"])

@@ -21,6 +21,7 @@ import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import { resolveNpm, childEnv } from "./checkout.ts"
 import { KINDS, kindDir } from "./compile.ts"
+import type { EngineRun, EngineRunOptions } from "./workspace-types.ts"
 
 const ENGINE = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const IDENTITY = {
@@ -31,7 +32,12 @@ const IDENTITY = {
 }
 
 /** Run `engine`'s CLI in `cwd`, output captured, no stdin. */
-export function engineRun(engine, cwd, args, { env = {}, timeoutMs = 300_000, input } = {}) {
+export function engineRun(
+  engine: string,
+  cwd: string,
+  args: string[],
+  { env = {}, timeoutMs = 300_000, input }: EngineRunOptions = {}
+): EngineRun {
   const r = spawnSync(process.execPath, [path.join(engine, "bin", "dreamteamer.js"), ...args], {
     cwd,
     encoding: "utf8",
@@ -45,7 +51,7 @@ export function engineRun(engine, cwd, args, { env = {}, timeoutMs = 300_000, in
 
 /** A fresh workspace in `root` on `engine`: the engine declared as a `file:` dependency and linked
  *  before `init`, so init finds it present and asks no registry. Throws with init's words on failure. */
-export function freshWorkspace(root, engine = ENGINE) {
+export function freshWorkspace(root: string, engine: string = ENGINE): string {
   fs.writeFileSync(
     path.join(root, "package.json"),
     JSON.stringify(

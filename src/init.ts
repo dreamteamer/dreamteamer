@@ -9,6 +9,16 @@ import { KNOWN_HARNESSES } from "./harnesses.ts"
 import { Store } from "./store.ts"
 import { envContext, renderTemplate } from "./env-vars.ts"
 import { declaredGitModules, ensureEditorRecommendation } from "./workspace.ts"
+import type { EnsuredRepo, ListedRepo, Workspace } from "./workspace-types.ts"
+
+/** A `repos` record, as its descriptor (collections/repos) declares it. */
+interface RepoFields {
+  name?: string
+  url?: string
+  ref?: string
+  path?: string
+  [k: string]: unknown
+}
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
@@ -116,7 +126,11 @@ export function initFootprint(block, flags = {}) {
 }
 
 // `commit: false` is `init --ready`'s: a bootstrap writes and never commits (checkout.js `bootstrap`).
-export function init({ flags = {}, root = process.cwd(), commit = true } = {}) {
+export function init({
+  flags = {},
+  root = process.cwd(),
+  commit = true,
+}: { flags?: Record<string, string>; root?: string; commit?: boolean } = {}) {
   const name = flags.name ?? path.basename(root)
   const dataPath = flags.data_path ?? "data"
   // package.json: create or update — the single manifest
@@ -491,7 +505,7 @@ function appendMissing(file, block) {
 
 // dreamteamer install --clone <url> [name] — clone a module for development AND
 // record it in the committed lockfile map (story 5.3)
-export function installClone(ws, url, name) {
+export function installClone(ws: Workspace, url: string, name?: string): number {
   if (!url) throw new Error("usage: dreamteamer install --clone <git-url> [name]")
   name = name && !name.startsWith("--") ? name : path.basename(url, ".git")
   const dest = path.join(ws.root, "git_modules", name)
@@ -554,15 +568,15 @@ export function repoPath(ws, fields) {
  * dreamteamer repos ensure <id> — materialize ONE declared repo, idempotently.
  * Cheap as a stat when already present, so callers never branch on presence themselves.
  */
-export function ensureRepo(ws, id) {
+export function ensureRepo(ws: Workspace, id: string): EnsuredRepo {
   const { fields } = new Store(ws).read("repos", id)
-  return materializeRepo(ws, id, fields)
+  return materializeRepo(ws, id, fields as RepoFields)
 }
 
 /** dreamteamer repos ensure --all — explicit opt-in (going offline, grepping across all of them). */
-export function ensureAllRepos(ws) {
-  const out = []
-  for (const { id, fields } of new Store(ws).readAll("repos")) out.push(materializeRepo(ws, id, fields))
+export function ensureAllRepos(ws: Workspace): EnsuredRepo[] {
+  const out: EnsuredRepo[] = []
+  for (const { id, fields } of new Store(ws).readAll("repos")) out.push(materializeRepo(ws, id, fields as RepoFields))
   return out
 }
 
@@ -571,9 +585,10 @@ export function ensureAllRepos(ws) {
  * with lazy materialization "is it here?" is the first question anyone asks, and a stored answer
  * would be wrong the moment someone deletes a folder.
  */
-export function listRepos(ws) {
-  const out = []
-  for (const { id, fields } of new Store(ws).readAll("repos")) {
+export function listRepos(ws: Workspace): ListedRepo[] {
+  const out: ListedRepo[] = []
+  for (const { id, fields: raw } of new Store(ws).readAll("repos")) {
+    const fields = raw as RepoFields
     // A path this machine cannot render is ONE unusable repo, not an unusable listing: `status`
     // asks this for every record, and a workspace cloned onto a machine that lacks one `.env` key
     // would otherwise report nothing about any of them. Say which, and why.
@@ -589,7 +604,7 @@ export function listRepos(ws) {
   return out
 }
 
-function materializeRepo(ws, id, fields) {
+function materializeRepo(ws: Workspace, id: string, fields: RepoFields): EnsuredRepo {
   const dest = repoPath(ws, fields)
   const ref = fields.ref ?? "main"
   const rp = relPath(ws.root, dest)

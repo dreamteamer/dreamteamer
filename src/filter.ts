@@ -3,8 +3,9 @@
 // and saved views actually emit. evaluated server-side over parsed records.
 // negative operators deliberately reject null (SQL semantics).
 import { compareValues } from "./temporal.ts"
+import type { Fields } from "./record-types.ts"
 
-export function matchesFilter(record, filter, resolve) {
+export function matchesFilter(record: Fields, filter: unknown, resolve?: unknown): boolean {
   if (filter == null || typeof filter !== "object") return true
   for (const [key, cond] of Object.entries(filter)) {
     if (key === "_and") {
@@ -120,7 +121,7 @@ function compare(op, v, operand) {
   }
 }
 
-export const KNOWN_OPERATORS = new Set([
+export const KNOWN_OPERATORS: ReadonlySet<string> = new Set([
   "_eq",
   "_neq",
   "_ieq",
@@ -160,7 +161,7 @@ function warnUnknownOp(op) {
 
 // walk a filter tree and return every operator key not in the known set — compile
 // validates ui-view filters with this so a typo'd operator fails loudly at compile time.
-export function unknownOperators(filter, found = new Set()) {
+export function unknownOperators(filter: unknown, found: Set<string> = new Set()): Set<string> {
   if (filter == null || typeof filter !== "object") return found
   for (const [key, cond] of Object.entries(filter)) {
     if (key === "_and" || key === "_or") {
@@ -224,7 +225,8 @@ export function unknownTokens(filter, found = new Set()) {
 // exported (through the public API) because a proof runner's enum validation has to compare the way THIS module compares: a proof's
 // `_eq: '5'` against a numeric enum member 5 is one filter at run time, and a strict `includes`
 // there refused a proof that works — worse than the silent pass it was written to prevent.
-export const looseEq = (v, o) => v === o || String(v) === String(o) || (typeof v === "number" && Number(o) === v)
+export const looseEq = (v: unknown, o: unknown): boolean =>
+  v === o || String(v) === String(o) || (typeof v === "number" && Number(o) === v)
 const toArray = o =>
   Array.isArray(o)
     ? o

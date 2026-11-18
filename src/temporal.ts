@@ -136,7 +136,7 @@ export function normalizeRecord(schema, fields) {
  * The numeric branch deliberately excludes `''`: `Number('')` is 0, which would sort a blank field
  * as "zero" and slot it between real numbers instead of grouping the blanks together.
  */
-export function compareValues(a, b) {
+export function compareValues(a: unknown, b: unknown): number {
   const ta = parseTemporal(a)
   const tb = parseTemporal(b)
   if (ta !== null && tb !== null) return ta - tb
@@ -152,7 +152,7 @@ export function compareValues(a, b) {
 /** `?sort=field` / `?sort=-field`, ordered with `compareValues`. Mutates and returns `rows`. Given the
  *  collection's `schema`, an enum field sorts by its DECLARED order (draft → active → done), blanks
  *  first and values outside the enum after it. */
-export function sortRows(rows, sort, schema) {
+export function sortRows<T>(rows: T[], sort: string | null | undefined, schema?: Record<string, any>): T[] {
   if (!sort) return rows
   const desc = String(sort).startsWith("-")
   const key = desc ? String(sort).slice(1) : String(sort)

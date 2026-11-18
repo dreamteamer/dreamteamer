@@ -23,6 +23,7 @@ const GIT_QUIET = ["ignore", "pipe", "ignore"]
 import { walk, idFromRecordPath, parseRecord, EXT } from "./records.ts"
 import { Store, serialize, atomicWrite } from "./store.ts"
 import { readmeText, extensionText, testText, scaffoldKey } from "./scaffold-templates.ts"
+import type { Workspace } from "./workspace-types.ts"
 
 // ---- the gate -------------------------------------------------------------------
 
@@ -351,7 +352,11 @@ function editWorkspacePkg(ws, mutate) {
 const NPM_NAME = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/
 const ENGINE_VERSION = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version
 
-export function createModule(ws, store, { name, description, namespace, extension = false, pkg: pkgName = null }) {
+export function createModule(
+  ws: Workspace,
+  store: Store,
+  { name, description, namespace, extension = false, pkg: pkgName = null }
+) {
   if (!name || name === true) throw new Error("missing module name — dreamteamer add modules --name <id>")
   if (pkgName === true)
     throw new Error("--package takes the npm name: dreamteamer add modules --name <id> --package @scope/<id>")
@@ -511,7 +516,7 @@ function moduleIdFromRef(ref, store) {
   return packageNameOf(store, s.slice("modules/".length))
 }
 
-export function setModule(ws, store, id, changes) {
+export function setModule(ws: Workspace, store: Store, id: string, changes: Record<string, unknown>) {
   const rec = moduleRecord(store, id)
   const unknown = Object.keys(changes).filter(k => !(k in MODULE_SETTABLE))
   if (unknown.length) {
@@ -573,7 +578,7 @@ export function setModule(ws, store, id, changes) {
   return { id, file, changed, commits: gate.commits, unchanged: gate.unchanged }
 }
 
-export function removeModule(ws, store, id, { force = false, dryRun = false } = {}) {
+export function removeModule(ws: Workspace, store: Store, id: string, { force = false, dryRun = false } = {}) {
   const { fields } = moduleRecord(store, id)
   if (fields.location === "node_modules") {
     throw new Error(
@@ -668,7 +673,8 @@ export function removeModule(ws, store, id, { force = false, dryRun = false } = 
   return { removed: id, ...plan, commits: out.commits }
 }
 
-export function renameModule(ws, store, oldId, newId) {
+/** `newId` arrives from the CLI, where a bare `--to` is `true` — refused below. */
+export function renameModule(ws: Workspace, store: Store, oldId: string, newId: string | boolean) {
   if (!newId || newId === true) throw new Error("missing new module id — dreamteamer rename modules/<old> <new>")
   if (oldId === newId) return { renamed: false, id: newId, files: [], rewrites: 0 }
   if (!MODULE_ID.test(newId))
@@ -853,7 +859,7 @@ function outboundTargets(d) {
   return out
 }
 
-export function moveCollection(ws, store, name, toModule, { dryRun = false } = {}) {
+export function moveCollection(ws: Workspace, store: Store, name: string, toModule: string, { dryRun = false } = {}) {
   const d = store.descriptor(name) // throws with the known-collection list
   if (isRuntime(d)) {
     throw new Error(`"${name}" is a compiled source, not a data collection — it has no module to move it to.`)
@@ -1033,7 +1039,13 @@ function deletePath(obj, dotted) {
   }
 }
 
-export function setCollectionScalars(ws, store, name, changes, { moduleId } = {}) {
+export function setCollectionScalars(
+  ws: Workspace,
+  store: Store,
+  name: string,
+  changes: Record<string, unknown>,
+  { moduleId } = {}
+) {
   const d = store.descriptor(name)
   const unknown = Object.keys(changes).filter(k => !settableOf(k))
   if (unknown.length) {
@@ -1632,7 +1644,7 @@ function fieldRenameWalk(ws, store, collection, from, to, { records: withRecords
   return { positions, edits, records }
 }
 
-export function renameFieldPlan(ws, store, collection, from, to) {
+export function renameFieldPlan(ws: Workspace, store: Store, collection: string, from: string, to: string) {
   const d = store.descriptor(collection)
   if (!fieldsOf(d)[from]) throw new Error(`no field "${from}" on ${collection}`)
   const { positions, records } = fieldRenameWalk(ws, store, collection, from, to ?? `<new-name>`)
@@ -1648,7 +1660,14 @@ export function renameFieldPlan(ws, store, collection, from, to) {
   }
 }
 
-export function renameField(ws, store, collection, from, to, { dryRun = false } = {}) {
+export function renameField(
+  ws: Workspace,
+  store: Store,
+  collection: string,
+  from: string,
+  to: string | boolean,
+  { dryRun = false } = {}
+) {
   const d = store.descriptor(collection)
   if (!to || to === true)
     throw new Error(`missing --to <new-name>: dreamteamer rename-field ${collection} --name ${from} --to <new-name>`)
@@ -1868,7 +1887,14 @@ function valueRenameTarget(store, collection, field, from, to) {
     )
 }
 
-export function renameValuePlan(ws, store, collection, field, from, to) {
+export function renameValuePlan(
+  ws: Workspace,
+  store: Store,
+  collection: string,
+  field: string,
+  from: string,
+  to: string
+) {
   valueRenameTarget(store, collection, field, from, to)
   const { positions, records } = valueRenameWalk(ws, store, collection, field, from, to)
   return {
@@ -1884,7 +1910,15 @@ export function renameValuePlan(ws, store, collection, field, from, to) {
   }
 }
 
-export function renameValue(ws, store, collection, field, from, to, { dryRun = false } = {}) {
+export function renameValue(
+  ws: Workspace,
+  store: Store,
+  collection: string,
+  field: string,
+  from: string,
+  to: string,
+  { dryRun = false } = {}
+) {
   const plan = renameValuePlan(ws, store, collection, field, from, to)
   if (dryRun) return { ...plan, renamed: false, dryRun: true }
   refusePositions(`rename-value ${collection} ${field} ${from} → ${to}`, plan.positions)
@@ -2074,7 +2108,11 @@ export function collectionSourceFileFor(ws, store, collection, moduleId) {
 
 // ---- ops ------------------------------------------------------------------------
 
-export function createCollection(ws, store, { name, mixins, idFrom, namespace, moduleId, description, suffix }) {
+export function createCollection(
+  ws: Workspace,
+  store: Store,
+  { name, mixins, idFrom, namespace, moduleId, description, suffix }
+) {
   if (!name) throw new Error("missing collection name")
   // §8. `--namespace health --name doctors` and `--name health/doctors` are the SAME collection,
   // because the qualified name IS the identity everywhere else in the engine — and a module that
@@ -2205,7 +2243,7 @@ export function createCollection(ws, store, { name, mixins, idFrom, namespace, m
   }
 }
 
-export function removeCollection(ws, store, name, { force = false } = {}) {
+export function removeCollection(ws: Workspace, store: Store, name: string, { force = false } = {}) {
   const d = store.descriptor(name)
   // The module that SHIPS it, not the workspace module. Refusing every module-shipped collection
   // made this verb unusable for exactly the workspace it was built for: a vault's domain
@@ -2287,7 +2325,7 @@ export function removeCollection(ws, store, name, { force = false } = {}) {
  * `--records=400 --filler=100`, the same machine, best of three: 6.39s and 410,678 reads → 0.16s
  * and 1,075 — which is 504 files twice over, the batch pass and the `collections/<name>` one.
  */
-export function renameCollection(ws, store, oldName, newName) {
+export function renameCollection(ws: Workspace, store: Store, oldName: string, newName: string) {
   const d = store.descriptor(oldName) // throws with the known-collection list if absent
   if (!newName) throw new Error("missing new collection name")
   if (oldName === newName) return { renamed: false, name: newName }
@@ -2919,7 +2957,11 @@ const optionList = v => (Array.isArray(v) ? v : String(v).split(",")).map(x => S
  *   --enum a,b   --default-value v   --mirror-of <field>   --on-delete restrict|set-null   --soft
  *   --sensitive   --body   --description "…"
  */
-export function fieldFromFlags(store, flags, previous = {}) {
+export function fieldFromFlags(
+  store: Store,
+  flags: Record<string, unknown>,
+  previous: Record<string, unknown> = {}
+): Record<string, unknown> {
   const f = structuredClone(previous ?? {})
   const has = k => flags[k] !== undefined
   if (has("type")) f.type = parseType(store, flags.type)
@@ -3080,7 +3122,7 @@ function declaringSource(ws, store, collection, fieldName, moduleId, verb) {
  *  on its own — every other key is inherited from the base. */
 const overrideSeed = merged => ({ type: merged.type, ...(merged.many && { many: true }) })
 
-export function addField(ws, store, collection, { name: fieldName, field, moduleId }) {
+export function addField(ws: Workspace, store: Store, collection: string, { name: fieldName, field, moduleId }) {
   if (!fieldName || fieldName === true) throw new Error("missing --name <field>")
   if (INJECTED.has(fieldName))
     throw new Error(`"${fieldName}" is injected by the engine into every collection — pick another name`)
@@ -3108,7 +3150,13 @@ export function addField(ws, store, collection, { name: fieldName, field, module
  * Change one field. `flags` is the flag vocabulary (`fieldFromFlags`), applied over the field as its
  * source declares it; `field` is a whole v2 field from a surface, which replaces it.
  */
-export function updateField(ws, store, collection, fieldName, { flags = {}, field, moduleId } = {}) {
+export function updateField(
+  ws: Workspace,
+  store: Store,
+  collection: string,
+  fieldName: string,
+  { flags = {}, field, moduleId } = {}
+) {
   const target = declaringSource(ws, store, collection, fieldName, moduleId, "set-field")
   const authored = readYaml(target.file)?.fields?.[fieldName]
   const previous = authored ?? overrideSeed(fieldsOf(store.descriptor(collection))[fieldName])
@@ -3244,7 +3292,7 @@ function pruneFieldPresentation(doc, fieldName) {
 
 /** What `rm-field` would do, counted without writing: the values it clears, the presentation it
  *  prunes, and every position elsewhere that still names the field — which it refuses on. */
-export function removeFieldPlan(ws, store, collection, fieldName, { moduleId } = {}) {
+export function removeFieldPlan(ws: Workspace, store: Store, collection: string, fieldName: string, { moduleId } = {}) {
   const { file } = declaringSource(ws, store, collection, fieldName, moduleId, "rm-field")
   const rel = path.relative(ws.root, file)
   if (readYaml(file)?.fields?.[fieldName] === undefined)
@@ -3287,7 +3335,13 @@ export function removeFieldPlan(ws, store, collection, fieldName, { moduleId } =
   }
 }
 
-export function removeField(ws, store, collection, fieldName, { moduleId, dryRun = false } = {}) {
+export function removeField(
+  ws: Workspace,
+  store: Store,
+  collection: string,
+  fieldName: string,
+  { moduleId, dryRun = false } = {}
+) {
   const plan = removeFieldPlan(ws, store, collection, fieldName, { moduleId })
   if (dryRun) return { ...plan, dryRun: true }
   // ⚠ A NAME ANOTHER POSITION STILL CARRIES IS REFUSED, not left dangling: compile validates every
@@ -3354,7 +3408,7 @@ function uiViewSourceFile(ws, id) {
 // saved views (M3): a studio-saved view IS a ui-view record — but ui-views are
 // system-stored (sources + compile), so the write goes through the same gate as any
 // other schema op. the studio "save view" button lands here.
-export function saveUiView(ws, store, { id, view, moduleId }) {
+export function saveUiView(ws: Workspace, store: Store, { id, view, moduleId }) {
   if (!id || !/^[a-z0-9][a-z0-9-/]*$/.test(id)) throw new Error(`invalid ui-view id "${id}" — lowercase slug required`)
   // §5: `add` on a system collection takes `--module`. It used to be dropped by the parser and then
   // assigned into the VIEW as a field called `module` — `dt add ui-views … --module core` wrote
@@ -3440,7 +3494,7 @@ function saveUiViewOverlay(ws, store, id, view, shipped) {
  * the old file gone, one compile gate, one commit per repo it touches — so a move into a linked
  * clone's module commits there, ready to publish with that module.
  */
-export function moveUiView(ws, store, id, toModule, { dryRun = false } = {}) {
+export function moveUiView(ws: Workspace, store: Store, id: string, toModule: string, { dryRun = false } = {}) {
   const { shipped } = uiViewSourceFile(ws, id)
   if (!shipped) throw new Error(`ui-view "${id}" does not exist`)
   if (IN_NODE_MODULES(shipped)) {
@@ -3483,7 +3537,7 @@ export function moveUiView(ws, store, id, toModule, { dryRun = false } = {}) {
   return { ...plan, moved: true, commits: out.commits }
 }
 
-export function removeUiView(ws, store, id) {
+export function removeUiView(ws: Workspace, store: Store, id: string) {
   // Same source resolution as the save above — an inline module's view is under this repo's git
   // history like everything else, so deleting it is one revertable commit. Refusing it while
   // ALLOWING a save to the same file would be an asymmetry with nothing behind it.
@@ -3554,7 +3608,7 @@ function refuseNpmEntity(kind, id, shipped) {
 
 const ENTITY_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
-export function createSkill(ws, store, { name, description, moduleId }) {
+export function createSkill(ws: Workspace, store: Store, { name, description, moduleId }) {
   if (!name || name === true)
     throw new Error('missing skill name — dreamteamer add skills --name <id> --description "…"')
   if (!ENTITY_ID.test(name))
@@ -3605,7 +3659,7 @@ export function createSkill(ws, store, { name, description, moduleId }) {
 
 /** `add` on a kind nobody can scaffold honestly — refused WITH THE PATH, because "hand-authored"
  *  without the filename is a refusal the reader has to go research. */
-export function refuseHandAuthored(ws, store, kind, id, moduleId) {
+export function refuseHandAuthored(ws: Workspace, store: Store, kind: string, id: string, moduleId: string) {
   const shape = entityShape(ws, kind)
   const root = moduleId
     ? moduleRecord(store, moduleId).fields.path
@@ -3617,7 +3671,7 @@ export function refuseHandAuthored(ws, store, kind, id, moduleId) {
   )
 }
 
-export function removeEntity(ws, store, kind, id) {
+export function removeEntity(ws: Workspace, store: Store, kind: string, id: string) {
   const { dir, shipped } = entitySource(ws, kind, id)
   if (!shipped) throw new Error(`${kind.replace(/s$/, "")} "${id}" does not exist — dt list ${kind}`)
   refuseNpmEntity(kind, id, shipped)
@@ -3643,7 +3697,7 @@ export function removeEntity(ws, store, kind, id) {
   }
 }
 
-export function renameEntity(ws, store, kind, oldId, newId) {
+export function renameEntity(ws: Workspace, store: Store, kind: string, oldId: string, newId: string | boolean) {
   if (!newId || newId === true) throw new Error(`missing new id — dreamteamer rename ${kind}/${oldId} <new-id>`)
   if (oldId === newId) return { renamed: false, id: newId }
   if (!ENTITY_ID.test(newId))
@@ -3679,7 +3733,13 @@ export function renameEntity(ws, store, kind, oldId, newId) {
   return { renamed: true, id: newId, commits: out.commits }
 }
 
-export function setEntityFrontmatter(ws, store, kind, id, changes) {
+export function setEntityFrontmatter(
+  ws: Workspace,
+  store: Store,
+  kind: string,
+  id: string,
+  changes: Record<string, unknown>
+) {
   const shape = entityShape(ws, kind)
   const { dir, file, shipped } = entitySource(ws, kind, id)
   if (!shipped) throw new Error(`${kind.replace(/s$/, "")} "${id}" does not exist — dt list ${kind}`)
