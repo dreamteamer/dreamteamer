@@ -12,8 +12,8 @@
 // one message naming the converter. Nothing here reads the v1 shape.
 import fs from "node:fs"
 import path from "node:path"
-import Ajv from "ajv"
-import addFormats from "ajv-formats"
+import { Ajv } from "ajv"
+import ajvFormats from "ajv-formats"
 import { shapeErrors, mergeMixins, mergeOverlays, nameErrors, isV2 } from "./descriptor-v2.ts"
 import { resolveFields, toJsonSchema } from "./fields.ts"
 import { targetsOf } from "./descriptor.ts"
@@ -23,6 +23,11 @@ import { patternRe, walk } from "./records.ts"
 import { renderTemplate } from "./env-vars.ts"
 
 import { CONVERTER } from "./extensions.ts"
+import type { AuthoredStorage, Field, Storage } from "./record-types.ts"
+
+// ajv-formats is CommonJS: its module.exports IS the plugin, and also carries it as `.default` — the
+// spelling its types describe.
+const addFormats = ajvFormats.default
 export { CONVERTER }
 
 /** The one refusal for a workspace that still holds v1 sources, listing every file. */
@@ -240,7 +245,7 @@ export function compileCollections(ctx) {
   const wordEntries = []
   for (const [name, s] of staged) {
     const { authored, group, base, overlays, where } = s
-    const a = authored.storage ?? {}
+    const a: AuthoredStorage = authored.storage ?? {}
     // `storage.owner` on the descriptor wins; `owns_data: true` on the module only moves the default.
     const owner = a.owner ?? (dataOwners.has(base.moduleName) ? "module" : "workspace")
     let storagePath = a.path ?? defaultStoragePath(name, namespaces, dataPath)
@@ -277,7 +282,7 @@ export function compileCollections(ctx) {
       // Declared by the workspace or REQUESTED by a module (its `dreamteamer.vars`): the descriptor
       // itself is the explicit request to render, so an undeclared var warns the way an undeclared
       // request does — and renders — rather than refusing a module that forgot to list it.
-      const declared = new Set(vars.declared)
+      const declared = new Set<string>(vars.declared)
       for (const k of keys) {
         if (declared.has(k)) continue
         warn(
@@ -313,7 +318,7 @@ export function compileCollections(ctx) {
       }
     }
     const bare = baseNameOf(name, namespaces)
-    const sdefaults = {}
+    const sdefaults: Record<string, any> = {}
     if (a.path === undefined || storagePath !== a.path) sdefaults.path = storagePath
     if (a.format === undefined) sdefaults.format = "md"
     if (a.shape === undefined) sdefaults.shape = "file"
@@ -480,13 +485,13 @@ export function compileCollections(ctx) {
         `⚠ collection ${name}: use_when restates its description — name the SITUATION that brings a session here (search here first · capture here when), not the noun again`
       )
 
-    const defaults = {}
+    const defaults: Record<string, any> = {}
     if (authored.title === undefined) defaults.title = title
     if (authored.singular === undefined) defaults.singular = singularWord
     if (authored.record_title === undefined) defaults.record_title = recordTitle
     if (Object.keys(sdefaults).length) defaults.storage = sdefaults
     // the layouts a surface draws when the descriptor names none
-    const ddefaults = {}
+    const ddefaults: Record<string, any> = {}
     if (authored.display?.list?.layout === undefined) ddefaults.list = { layout: "table" }
     if (authored.display?.record?.layout === undefined) ddefaults.record = { layout: "page" }
     defaults.display = ddefaults
@@ -561,7 +566,10 @@ export function compileCollections(ctx) {
  * generated mirror of O's reference field `f`. The owner must exist and point at T; a scalar mirror
  * means the owner's reference is unique; the target must be able to hold a generated field.
  */
-function relations(out, fail) {
+function relations(
+  out: Map<string, { resolved: Record<string, Field>; storage: Storage; [k: string]: any }>,
+  fail: (msg: string) => void
+) {
   for (const [tName, t] of out) {
     for (const [mName, m] of Object.entries(t.resolved)) {
       if (m.mirror_of === undefined) continue

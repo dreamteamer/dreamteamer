@@ -11,6 +11,7 @@ import path from "node:path"
 import { walk } from "./records.ts"
 import { parseRef } from "./namespace.ts"
 import { storageOf, fieldsOf, targetsOf, isSoft } from "./descriptor.ts"
+import type { Descriptors, Field, ManifestLayer } from "./record-types.ts"
 
 export const EXPORTS_FILE = "dreamteamer-exports.json"
 
@@ -47,8 +48,11 @@ export function serializeExports(refs) {
 }
 
 /** Every hard-reference field of a descriptor's fields, nested ones included: `[path, targets, soft]`. */
-export function collectRefFields(fields, prefix = []) {
-  const out = []
+export function collectRefFields(
+  fields: Record<string, Field> | undefined,
+  prefix: string[] = []
+): [string[], null | "*" | string[], boolean][] {
+  const out: [string[], null | "*" | string[], boolean][] = []
   for (const [key, f] of Object.entries(fields ?? {})) {
     if (!f || typeof f !== "object") continue
     const p = [...prefix, key]
@@ -82,8 +86,20 @@ function readsAll(root, dataDir, reads) {
  * nothing is known, so no layer is complete and no layer holder is seen); `own` this workspace's package
  * name. A repo is named by its layer name, the write root by null.
  */
-export function exportsContext({ root, descriptors, own, layers, dataPath = "data" }) {
-  const facts = new Map((layers ?? []).map(l => [l.name, l]))
+export function exportsContext({
+  root,
+  descriptors,
+  own,
+  layers,
+  dataPath = "data",
+}: {
+  root: string
+  descriptors: Descriptors
+  own: string | null
+  layers: ManifestLayer[] | null | undefined
+  dataPath?: string
+}) {
+  const facts = new Map((layers ?? []).map(l => [l.name, l] as const))
   const rootsOf = coll => {
     const d = descriptors.get(coll)
     if (!d) return []
@@ -104,7 +120,7 @@ export function exportsContext({ root, descriptors, own, layers, dataPath = "dat
     const reads = []
     for (const d of descriptors.values()) {
       if (storageOf(d).unavailable) return false
-      if (storageOf(d).base !== "runtime" && !path.isAbsolute(storageOf(d).path) && !storageOf(d).path.includes("${"))
+      if (!storageOf(d).runtime && !path.isAbsolute(storageOf(d).path) && !storageOf(d).path.includes("${"))
         reads.push(storageOf(d).path)
     }
     return readsAll(root, dataPath, reads)

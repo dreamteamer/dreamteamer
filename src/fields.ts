@@ -10,6 +10,7 @@
 // This module is pure: no fs, no git, no knowledge of modules. It is handed the set of collection names
 // that exist so a `type: <collection>` can be told from a typo, and returns errors rather than throwing,
 // so compile can attribute each one to a file.
+import type { Field } from "./record-types.ts"
 
 /** The authored types, in the order the help text lists them. A collection may not be named after one. */
 export const SCALAR_TYPES = [
@@ -127,7 +128,7 @@ export function referenceTargets(type, collections) {
  *   defaults — per field, the keys compile supplied (title today; on_delete on references)
  *   errors   — each naming the field and the key
  */
-export function resolveFields(authored, ctx) {
+export function resolveFields(authored: Record<string, any> | undefined, ctx) {
   const errors = []
   const warnings = []
   const defaults = {}
@@ -152,8 +153,8 @@ export function resolveFields(authored, ctx) {
     if (prop.body) bodies++
     if (prop.type === "position") positions++
     // defaults compile supplies, recorded apart so the resolved field never looks authored where it was not
-    const out = { ...prop }
-    const d = {}
+    const out: Record<string, any> = { ...prop }
+    const d: Record<string, any> = {}
     if (out.title === undefined) {
       out.title = titleOf(name)
       d.title = out.title
@@ -324,25 +325,28 @@ export function titleOf(name) {
  * The validator's schema. Standard JSON Schema, standard keywords only, no descriptions, no titles:
  * those live once, in `compiled.fields`. Properties are exactly the non-virtual fields.
  */
-export function toJsonSchema(fields, { constraints = [], collections } = {}) {
-  const properties = {}
-  const required = []
+export function toJsonSchema(
+  fields: Record<string, Field>,
+  { constraints = [], collections }: { constraints?: unknown[]; collections?: Iterable<string> } = {}
+): Record<string, any> {
+  const properties: Record<string, any> = {}
+  const required: string[] = []
   for (const [name, f] of Object.entries(fields)) {
     if (f.virtual) continue
     properties[name] = propertySchema(f, collections)
     if (f.required) required.push(name)
   }
-  const schema = { type: "object", properties }
+  const schema: Record<string, any> = { type: "object", properties }
   if (required.length) schema.required = required
   if (constraints.length) schema.allOf = constraints.map(c => structuredClone(c))
   return schema
 }
 
-function propertySchema(f, collections) {
+function propertySchema(f: Field, collections?: Iterable<string>) {
   let s = scalarSchema(f, collections)
   for (const k of PASS_THROUGH) if (f[k] !== undefined && !(f.many && ["minItems", "maxItems"].includes(k))) s[k] = f[k]
   if (f.many) {
-    const arr = { type: "array", items: s }
+    const arr: Record<string, any> = { type: "array", items: s }
     for (const k of ["minItems", "maxItems", "default", "examples"]) if (f[k] !== undefined) arr[k] = f[k]
     delete s.default
     delete s.examples
@@ -353,7 +357,7 @@ function propertySchema(f, collections) {
   return s
 }
 
-function scalarSchema(f, collections) {
+function scalarSchema(f: Field, collections?: Iterable<string>): Record<string, any> {
   const t = f.type
   if (referenceTargets(t, collections ?? new Set(Array.isArray(t) ? t : [t]))) return { type: "string" }
   switch (t) {

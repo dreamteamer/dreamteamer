@@ -21,7 +21,7 @@ import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import { resolveNpm, childEnv } from "./checkout.ts"
 import { KINDS, kindDir } from "./compile.ts"
-import type { EngineRun, EngineRunOptions } from "./workspace-types.ts"
+import type { EngineRun, EngineRunOptions, Log } from "./workspace-types.ts"
 
 const ENGINE = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const IDENTITY = {
@@ -149,7 +149,15 @@ const unshippedLine = (name, u) =>
   `${name} does not ship ${u.missing[0]}${u.missing.length > 1 ? ` (and ${u.missing.length - 1} more)` : ""} — package.json "files" leaves out ${u.folder}, so a stranger's install would have none of it; add "${u.folder}" to "files"`
 
 /** The gate. `target` is the positional (`modules/<id>`); returns the exit code. */
-export function checkAlone(ws, { target, keep = false, log = console.log, error = console.error } = {}) {
+export function checkAlone(
+  ws,
+  {
+    target,
+    keep = false,
+    log = console.log,
+    error = console.error,
+  }: { target?: string; keep?: boolean; log?: Log; error?: Log } = {}
+) {
   const usage = m => {
     error(`✖ ${m}`)
     return 2

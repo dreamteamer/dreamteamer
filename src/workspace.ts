@@ -80,7 +80,7 @@ export function declaredGitModules(pkg, root = null) {
     const { url, ref = "main" } = entry ?? {}
     return { url, ref, records: r, open: r === undefined }
   }
-  for (const [name, entry] of Object.entries(pkg?.dreamteamer?.git_modules ?? {})) {
+  for (const [name, entry] of Object.entries((pkg?.dreamteamer?.git_modules ?? {}) as Record<string, any>)) {
     map.set(name, { ...validate(`git_modules.${name}`, entry), module: entry?.module === true, declarers: [null] })
   }
   if (!root) return { map, nested, mismatches, unmet }

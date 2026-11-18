@@ -41,7 +41,7 @@ export const BINDING_SCOPES = ["record", "collection"]
 const V1_VIEW_KEYS = ["path", "target", "layout", "options", "nav"]
 const V1_BINDING_KEYS = ["target", "can-enter", "can-exit"]
 
-const isMap = v => !!v && typeof v === "object" && !Array.isArray(v)
+const isMap = (v: unknown): v is Record<string, any> => !!v && typeof v === "object" && !Array.isArray(v)
 const BUILTIN_FIELDS = ["id", "created", "last_modified"]
 
 /**
@@ -160,7 +160,10 @@ function displayErrors(display, { fields, groupFields, collection, errors, names
  * Validate one command-binding.
  * @returns {{ errors: string[], warnings: string[], v1?: true }}
  */
-export function bindingErrors(b, { file, fields, lenient = false }) {
+export function bindingErrors(
+  b,
+  { file, fields, lenient = false }: { file: string; fields?: Record<string, unknown>; lenient?: boolean }
+) {
   if (!isMap(b)) return { errors: [`${file}: a command-binding is a mapping`], warnings: [] }
   if (V1_BINDING_KEYS.some(k => k in b)) return { v1: true, errors: [], warnings: [] }
   const errors = []

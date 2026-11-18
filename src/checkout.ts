@@ -10,6 +10,8 @@ import { declaredGitModules } from "./workspace.ts"
 import { engineVersion, readManifest, RUNTIME_DIR } from "./runtime.ts"
 import { satisfies } from "./semver.ts"
 import type { Checkout, HookInput, Workspace } from "./workspace-types.ts"
+import type { Log, Opener } from "./workspace-types.ts"
+import type { StdioOptions } from "node:child_process"
 
 export const defaultGit = (args, cwd) => {
   try {
@@ -70,7 +72,7 @@ export function describeCheckout(rootArg: string, git: (args: string[], cwd: str
 /** The install plan as DATA: every step names what it found and what it would do, so the same
  * decisions are testable without a disk and printable without being run. Task 3 observes the state
  * and executes the steps; nothing here touches fs or git. */
-export function planInstall(state, opts = {}) {
+export function planInstall(state, opts: Record<string, any> = {}) {
   const { checkout: c } = state
   const steps = []
   // ⚠ EVERY declared direct dependency, not just the engine. A worktree whose engine is a mirrored dev
@@ -177,7 +179,7 @@ export function declaredLocalAssets(ws) {
   }
   for (const rel of ws.pkg.dreamteamer?.local_assets ?? []) add(rel, null)
   for (const m of discoverModules(ws.root, ws.pkg).modules) {
-    let mp = {}
+    let mp: Record<string, any> = {}
     try {
       mp = JSON.parse(fs.readFileSync(path.join(m.root, "package.json"), "utf8"))
     } catch {
@@ -421,7 +423,13 @@ export async function applyInstall(
   ws,
   state,
   steps,
-  { dryRun = false, log = console.log, stdio = "inherit", npm = resolveNpm(), open = null } = {}
+  {
+    dryRun = false,
+    log = console.log,
+    stdio = "inherit",
+    npm = resolveNpm(),
+    open = null,
+  }: { dryRun?: boolean; log?: Log; stdio?: StdioOptions; npm?: string | null; open?: Opener | null } = {}
 ) {
   let failed = 0,
     installed = false,
@@ -842,6 +850,16 @@ export async function initCommand(
     processEnv = process.env,
     tty = !!(process.stdin.isTTY && process.stdout.isTTY),
     argv = [],
+  }: {
+    root?: string
+    open?: Opener
+    verify?: any
+    npm?: string | null
+    stdio?: StdioOptions
+    log?: Log
+    processEnv?: NodeJS.ProcessEnv
+    tty?: boolean
+    argv?: string[]
   } = {}
 ) {
   const want = engineVersion()
@@ -1113,7 +1131,11 @@ export async function initCommand(
       log("✔ git: nothing new to commit")
     else
       log(
-        `⚠ git: commit did not happen (${(c.stderr ?? "").trim().split("\n")[0] || `exit ${c.status}`}) — \`git status\` shows what init wrote`
+        `⚠ git: commit did not happen (${
+          String(c.stderr ?? "")
+            .trim()
+            .split("\n")[0] || `exit ${c.status}`
+        }) — \`git status\` shows what init wrote`
       )
   }
   if (ws) {

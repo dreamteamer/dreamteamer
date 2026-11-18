@@ -108,7 +108,7 @@ export function normalizeTemporal(value, format) {
  * declared date/date-time fields are touched — a plain string that happens to look like a date
  * stays exactly as the author typed it. Recurses through object properties and array items.
  */
-export function normalizeRecord(schema, fields) {
+export function normalizeRecord(schema: { properties?: Record<string, any> } | undefined, fields) {
   if (!schema || fields === null || typeof fields !== "object") return fields
   for (const [key, prop] of Object.entries(schema.properties ?? {})) {
     const value = fields[key]

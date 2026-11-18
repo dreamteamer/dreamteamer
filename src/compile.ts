@@ -513,7 +513,7 @@ export function compile(ws: Workspace): 0 {
   const modulePeers = new Map() // module name -> [collection names]  — SOFT, cannot cycle
   const moduleNamespaces = new Map() // module name -> [namespaces it DECLARES] (§8, option A)
   const moduleVersions = new Map<string, string>() // module name -> its package.json version
-  const moduleFloors = new Map() // module name -> npm `peerDependencies` — a version floor on a sibling module
+  const moduleFloors = new Map<string, Record<string, string>>() // module name -> npm `peerDependencies` — a version floor on a sibling module
   const modulePresets = new Map() // module preset name -> { member name: exact version } (CR-dt-008)
   const moduleLocalAssets = [] // {rel, owner, base} — validated with the workspace's own, below
   // the package.json `dreamteamer` block is a closed set of snake_case keys, the workspace's and
@@ -549,7 +549,7 @@ export function compile(ws: Workspace): 0 {
     for (const [key, sink] of [
       ["dependencies", moduleDeps],
       ["peer_collections", modulePeers],
-    ]) {
+    ] as const) {
       const decl = mpkg.dreamteamer?.[key]
       if (decl === undefined) continue
       if (!Array.isArray(decl) || decl.some(v => typeof v !== "string")) {
@@ -899,7 +899,7 @@ export function compile(ws: Workspace): 0 {
     // or space on the flag line still carries the flag (the parsed value is what decides)
     return /^overlay:\s*true\b/m.test(text) && loadSource(text, rel(srcPath))?.overlay === true
   }
-  const counts = {}
+  const counts: Record<string, number> = {}
   /** collection descriptors collected per name, a base and its overlays: name -> [{src, doc, moduleName}] */
   const descriptorGroups = new Map()
 
@@ -1302,7 +1302,7 @@ export function compile(ws: Workspace): 0 {
   }
   for (const source of sources) {
     const id = moduleId(source.name)
-    let pkg = {}
+    let pkg: WorkspacePkg = {}
     try {
       pkg = JSON.parse(fs.readFileSync(path.join(source.root, "package.json"), "utf8"))
     } catch {
@@ -1712,7 +1712,7 @@ export function staleness(root: string): Staleness {
     if (!fs.existsSync(p)) stale.push(`${src.path} (removed)`)
     else if (sha256(fs.readFileSync(p)) !== src.hash) stale.push(`${src.path} (changed)`)
   }
-  let pkg = {}
+  let pkg: WorkspacePkg = {}
   try {
     pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"))
   } catch {

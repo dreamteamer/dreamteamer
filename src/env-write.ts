@@ -14,7 +14,8 @@ import { createHash, randomBytes } from "node:crypto"
 import { spawnSync } from "node:child_process"
 
 export class EnvRefusal extends Error {
-  constructor(code, message) {
+  declare code: string
+  constructor(code: string, message: string) {
     super(message)
     this.code = code
   }

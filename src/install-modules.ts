@@ -41,6 +41,7 @@ import {
   NAV_GUARD_LINE,
 } from "./nav-fragments.ts"
 import { writeNavDoc, NavDocError } from "./nav.ts"
+import type { Log, Opener, Workspace } from "./workspace-types.ts"
 
 /** Numeric major.minor.patch order; a prerelease sorts below its release. */
 export function compareVersions(a, b) {
@@ -52,7 +53,8 @@ export function compareVersions(a, b) {
 export const NPM_FLOOR = ">=7.0.0"
 
 export class InstallRefusal extends Error {
-  constructor(m) {
+  declare code: number
+  constructor(m: string) {
     super(m)
     this.code = EXIT.failed
   }
@@ -180,7 +182,7 @@ export function installedModules(ws) {
   const out = new Map()
   const { modules } = discoverModules(ws.root, ws.pkg)
   for (const m of modules) {
-    let manifest = {}
+    let manifest: Record<string, any> = {}
     try {
       manifest = JSON.parse(fs.readFileSync(path.join(m.root, "package.json"), "utf8"))
     } catch {
@@ -238,6 +240,13 @@ export function resolveClosure(
     cwd = process.cwd(),
     engine = engineVersion(),
     skipMembers = new Set(),
+  }: {
+    installed?: Map<string, any>
+    from?: string | null
+    npm?: string | null
+    cwd?: string
+    engine?: string
+    skipMembers?: Set<string>
   } = {}
 ) {
   const index = from ? indexFolder(from) : null
@@ -360,6 +369,15 @@ export async function npmAndCompile(
     what = "install",
     ignoreSettings = false,
     childCompile = false,
+  }: {
+    npm?: string | null
+    open?: Opener
+    json?: boolean
+    log?: Log
+    hooks?: { afterNpm?: () => void }
+    what?: string
+    ignoreSettings?: boolean
+    childCompile?: boolean
   } = {}
 ) {
   const names = list.map(e => e.manifest.name)
@@ -507,6 +525,16 @@ export async function setupAndCommit(
     processEnv = process.env,
     noCommit = false,
     nav = null,
+  }: {
+    subject?: string
+    inputFlags?: string[]
+    allow?: Set<string>
+    tty?: boolean
+    noInput?: boolean
+    io?: any
+    processEnv?: NodeJS.ProcessEnv
+    noCommit?: boolean
+    nav?: any
   } = {}
 ) {
   const skipped = new Set(skippedUnits(fresh))
@@ -631,6 +659,15 @@ export async function installModules(
     processEnv = process.env,
     tty = !!(process.stdin.isTTY && process.stdout.isTTY),
     io = null,
+  }: {
+    open?: Opener
+    npm?: string | null
+    verify?: any
+    hooks?: { afterNpm?: () => void }
+    log?: Log
+    processEnv?: NodeJS.ProcessEnv
+    tty?: boolean
+    io?: any
   } = {}
 ) {
   if (typeof open !== "function")

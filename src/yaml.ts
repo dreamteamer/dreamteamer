@@ -2,6 +2,7 @@
 // never timestamp objects. ALL dreamteamer tooling loads YAML through here.
 import yaml from "js-yaml"
 import { parseDocument, isMap, isSeq, isScalar, visit as visitYaml } from "yaml"
+import type { Pair, Scalar, YAMLMap, YAMLSeq } from "yaml"
 
 export const load = (text: string): any => yaml.load(text, { schema: yaml.CORE_SCHEMA })
 export const dump = (obj: unknown, opts: yaml.DumpOptions = {}): string => yaml.dump(obj, { lineWidth: 120, ...opts })
@@ -78,7 +79,7 @@ function merge(doc, node, value) {
   // falls to the leftover nodes IN ORDER, which is what lets an in-place edit (an `x-reference`
   // retarget rewriting one entry) keep the comment that was always about that position.
   if (isSeq(node) && Array.isArray(value)) {
-    const old = [...node.items]
+    const old: any[] = [...node.items]
     const out = new Array(value.length)
     value.forEach((v, i) => {
       const j = old.findIndex(it => it !== undefined && same(it?.toJSON?.() ?? null, v ?? null))
@@ -137,7 +138,7 @@ const pairSpan = (text, p, lines) => [p.key.range[0], endOf(text, (p.value?.rang
 
 /** Emit the document, restoring the original bytes of everything that did not change and that
  *  `keep` accepts — a formatter passes a `keep` that refuses a node whose STYLE it changed. */
-function emit(doc, originalText, keep = () => true) {
+function emit(doc, originalText, keep: (node: any) => boolean = () => true) {
   const out = doc.toString(SOURCE_OPTS)
   if (originalText == null) return out
   const oldRoot = parseDocument(originalText, { schema: "core" }).contents
@@ -145,7 +146,7 @@ function emit(doc, originalText, keep = () => true) {
   const kind = x => (isMap(x) ? "map" : isSeq(x) ? "seq" : isScalar(x) ? "scalar" : null)
   const edits = []
 
-  const visit = (o, n) => {
+  const visit = (o: any, n: any) => {
     if (!o?.range || !n?.range || kind(o) === null || kind(o) !== kind(n)) return
     if (keep(o) && same(o.toJSON(), n.toJSON())) {
       const lines = commentLines(o)
@@ -155,8 +156,8 @@ function emit(doc, originalText, keep = () => true) {
     // A changed collection is still mostly unchanged — descend, so one edited field restores every
     // sibling verbatim instead of re-emitting the whole block around it.
     if (isMap(o) && isMap(n)) {
-      for (const np of n.items) {
-        const op = o.items.find(p => keyOf(p) === keyOf(np))
+      for (const np of n.items as Pair<any, any>[]) {
+        const op = (o.items as Pair<any, any>[]).find(p => keyOf(p) === keyOf(np))
         if (!op) continue
         if (keep(op.value) && same(op.value?.toJSON?.() ?? null, np.value?.toJSON?.() ?? null)) {
           const lines = commentLines(op.value)
@@ -199,7 +200,9 @@ export function writeSource(previousText, value) {
 
 /** A flow mapping, or a flow sequence holding a collection — the two flow forms block style replaces.
  *  A flow sequence of scalars (`enum: [open, done]`) is block style's own short form and stays. */
-const isFlowForm = n => !!n?.flow && (isMap(n) || (isSeq(n) && n.items.some(i => isMap(i) || isSeq(i))))
+/** A mapping, or a sequence holding a collection, written in flow (`{ … }` / `[ … ]`) form. */
+const isFlowForm = (n: unknown): n is YAMLMap | YAMLSeq =>
+  !!(n as { flow?: boolean })?.flow && (isMap(n) || (isSeq(n) && n.items.some(i => isMap(i) || isSeq(i))))
 const holdsFlowForm = node => {
   let found = false
   visitYaml(node, {
@@ -257,7 +260,7 @@ export function renameKeys(previousText, renames) {
   for (const { path: at, to } of renames) {
     const parent = at.length > 1 ? doc.getIn(at.slice(0, -1), true) : doc.contents
     if (!isMap(parent)) continue
-    const pair = parent.items.find(p => keyOf(p) === String(at[at.length - 1]))
+    const pair = parent.items.find(p => keyOf(p) === String(at[at.length - 1])) as Pair<Scalar> | undefined
     if (!pair?.key?.range) continue
     const [s, e] = pair.key.range
     const raw = previousText.slice(s, e)

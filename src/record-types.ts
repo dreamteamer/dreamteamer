@@ -22,6 +22,8 @@ export interface Field {
   description?: string
   required?: boolean
   many?: boolean
+  minItems?: number
+  maxItems?: number
   default?: unknown
   enum?: unknown[] | Record<string, EnumChoice>
   unique?: boolean
@@ -131,6 +133,8 @@ export interface CompiledBlock {
 
 /** `storage:` as the author wrote it. */
 export interface AuthoredStorage {
+  /** who owns the data folder: the workspace (default) or the module that ships the collection */
+  owner?: "module" | "workspace"
   path?: string
   format?: StorageFormat
   shape?: StorageShape

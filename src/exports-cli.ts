@@ -71,7 +71,10 @@ export function planExports(store, repo) {
     file: path.join(dir, EXPORTS_FILE),
     text: serializeExports(next),
     changes,
-    entries: Object.values(next).reduce((n, m) => n + Object.keys(m).length, 0),
+    entries: Object.values(next as Record<string, Record<string, unknown>>).reduce(
+      (n, m) => n + Object.keys(m).length,
+      0
+    ),
   }
 }
 

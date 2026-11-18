@@ -17,6 +17,7 @@ import { load, dump } from "./yaml.ts"
 
 import { storageOf, isInternal, moduleOf, fieldsOf, idsOf, requiredOf } from "./descriptor.ts"
 import { enumValues } from "./fields.ts"
+import type { Entry, LoadedExtension } from "./workspace-types.ts"
 export const KNOWN_HARNESSES = ["claude-code", "codex", "pi", "gemini-cli", "cursor"]
 
 export const STAMP =
@@ -50,7 +51,17 @@ export const MANAGED_BLOCKS: readonly { id: "orientation" | "instructions"; begi
  * renderer that throws used to do so halfway through materialization, leaving new descriptors beside
  * the old manifest (review F7). Anything invalid is refused here with the extension's name.
  */
-export function renderContributions({ entries, harnesses, version = "unknown", extensions = [] }) {
+export function renderContributions({
+  entries,
+  harnesses,
+  version = "unknown",
+  extensions = [],
+}: {
+  entries: Map<string, Entry>
+  harnesses: string[]
+  version?: string
+  extensions?: LoadedExtension[]
+}) {
   const rendered = []
   const paragraphs = []
   for (const e of extensions) {
@@ -299,7 +310,7 @@ function buildCollectionsIndex(entries) {
   for (const [rt, e] of entries) {
     const m = /^collections\/(.+)\.collection\.yaml$/.exec(rt)
     if (!m) continue
-    let d = {}
+    let d: any = {}
     try {
       d = load(e.bytes.toString("utf8")) ?? {}
     } catch {
@@ -373,7 +384,7 @@ function buildModulesIndex(entries) {
   for (const [rt, e] of entries) {
     const m = /^modules\/(.+)\.module\.yaml$/.exec(rt)
     if (!m) continue
-    let d = {}
+    let d: any = {}
     try {
       d = load(e.bytes.toString("utf8")) ?? {}
     } catch {
@@ -472,7 +483,7 @@ function collectionsSection(index, modules, workspaceModule, verbs) {
   // before them all: a session reading cold meets the schema of schemas before any domain
   const sys = index
     .filter(c => c.systemGroup)
-    .sort((a, b) => (b.name === "collections") - (a.name === "collections") || a.name.localeCompare(b.name))
+    .sort((a, b) => +(b.name === "collections") - +(a.name === "collections") || a.name.localeCompare(b.name))
   if (sys.length) {
     const system = sys.filter(c => c.generated).map(c => c.name)
     const kept = sys.filter(c => !c.generated).map(c => c.name)
@@ -494,7 +505,7 @@ function collectionsSection(index, modules, workspaceModule, verbs) {
         (!own.length && (m.skills.length || m.commands.length || m.bin.length || verbs.get(m.id)?.length))
       )
     })
-    .sort((a, b) => isWs(b) - isWs(a) || a.title.localeCompare(b.title))
+    .sort((a, b) => +isWs(b) - +isWs(a) || a.title.localeCompare(b.title))
   for (const m of groups) {
     const where = [
       `\`${m.id}\``,
@@ -538,7 +549,7 @@ function templatesSection(entries) {
   for (const [rt, e] of entries) {
     const m = /^mixins\/(.+)\.mixin\.yaml$/.exec(rt)
     if (!m) continue
-    let d = {}
+    let d: any = {}
     try {
       d = load(e.bytes.toString("utf8")) ?? {}
     } catch {
@@ -602,7 +613,7 @@ function bindingsSection(entries) {
   const byCollection = new Map()
   for (const [rt, e] of entries) {
     if (!/^command-bindings\/.+\.command-binding\.yaml$/.test(rt)) continue
-    let d = {}
+    let d: any = {}
     try {
       d = load(e.bytes.toString("utf8")) ?? {}
     } catch {
@@ -643,7 +654,7 @@ function orientationBlock(
   version = "unknown",
   entries = new Map(),
   workspaceModule = "",
-  extra = { kinds: [], paragraphs: [] }
+  extra: { kinds: string[]; paragraphs: string[]; verbs?: Map<string, string[]> } = { kinds: [], paragraphs: [] }
 ) {
   const sourcesLine =
     {
@@ -713,7 +724,12 @@ function orientationBlock(
 
 // managed block in a USER-OWNED root file. content=null removes the block; a file left
 // empty (or whitespace) after removal is deleted — we created it, we clean it up.
-function writeBlock(root, filename, content, { begin = BEGIN, end = END, below, top = false } = {}) {
+function writeBlock(
+  root: string,
+  filename: string,
+  content: string | null,
+  { begin = BEGIN, end = END, below, top = false }: { begin?: string; end?: string; below?: string; top?: boolean } = {}
+) {
   const file = path.join(root, filename)
   const exists = fs.existsSync(file)
   if (content == null) {

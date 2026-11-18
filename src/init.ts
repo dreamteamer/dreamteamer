@@ -10,6 +10,7 @@ import { Store } from "./store.ts"
 import { envContext, renderTemplate } from "./env-vars.ts"
 import { declaredGitModules, ensureEditorRecommendation } from "./workspace.ts"
 import type { EnsuredRepo, ListedRepo, Workspace } from "./workspace-types.ts"
+import type { StdioOptions } from "node:child_process"
 
 /** A `repos` record, as its descriptor (collections/repos) declares it. */
 interface RepoFields {
@@ -23,7 +24,7 @@ interface RepoFields {
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
 // reached the user's terminal. stdout stays piped because we read it.
-const QUIET = ["ignore", "pipe", "ignore"]
+const QUIET: StdioOptions = ["ignore", "pipe", "ignore"]
 
 const SKELETON_KINDS = ["collections", "skills", "agents", "commands", "ui-views"]
 
@@ -75,7 +76,7 @@ const ENV_EXAMPLE = `# secrets for skills and modules go here (copy to .env; .en
 /** The `dreamteamer` block init leaves in package.json: its seeds, under whatever the EXISTING block
  *  already says — the existing key always wins over a flag. One function, because `init --ready` must
  *  judge exactly the paths init will write, and a second copy of this precedence is how it did not. */
-export function seedBlock(flags = {}, existing = {}) {
+export function seedBlock(flags: Record<string, any> = {}, existing: Record<string, any> = {}) {
   // EVERY known harness by default, and this is the operator's explicit call over the architecture
   // review's dissent — recorded, not elided: it writes AGENTS.md, GEMINI.md and .cursor/rules/ into
   // every new workspace, which is real clutter. The decision stands on the ASYMMETRY. A missing
@@ -109,7 +110,7 @@ export function seedBlock(flags = {}, existing = {}) {
 
 /** Every path `init` writes or creates for this effective block, root-relative. ⚠ The data folder is
  *  the FLAG's (or `data`), not the block's — what init has always created, so both are listed. */
-export function initFootprint(block, flags = {}) {
+export function initFootprint(block, flags: Record<string, any> = {}) {
   const wm = block.workspace_module,
     base = wm ? `modules/${wm}` : "."
   return [
@@ -439,7 +440,7 @@ const isLink = p => {
     return false
   }
 }
-const ran = (cwd, args, timeout) => {
+const ran = (cwd: string, args: string[], timeout?: number) => {
   try {
     execFileSync("git", args, { cwd, stdio: QUIET, timeout })
     return true

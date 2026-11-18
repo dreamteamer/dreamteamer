@@ -5,8 +5,8 @@
 import { execFileSync } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
-import Ajv from "ajv"
-import addFormats from "ajv-formats"
+import { Ajv } from "ajv"
+import ajvFormats from "ajv-formats"
 import { dump, writeSource } from "./yaml.ts"
 import { generateId } from "./template.ts"
 import {
@@ -70,16 +70,21 @@ import type {
   RelocatePlan,
   WorkspaceRoot,
 } from "./record-types.ts"
+import type { StdioOptions } from "node:child_process"
+
+// ajv-formats is CommonJS: its module.exports IS the plugin, and also carries it as `.default` — the
+// spelling its types describe.
+const addFormats = ajvFormats.default
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
 // reached the user's terminal. stdout stays piped because we read it.
-const QUIET = ["ignore", "pipe", "ignore"]
+const QUIET: StdioOptions = ["ignore", "pipe", "ignore"]
 
 export class Store {
   declare root: string
   declare runtime: string
   declare autoCommit: boolean
-  declare ajv: InstanceType<typeof Ajv.default>
+  declare ajv: Ajv
   declare descriptors: Descriptors
   /** the closed set every reference is split against, longest first */
   declare namespaces: string[]
@@ -191,7 +196,7 @@ export class Store {
   /** `unique: true` on a scalar field: no two records of the collection may hold one value. Null and
    *  absent never claim. Only the keys being written are asked, so an unrelated edit to a record
    *  that already shares a value is not where that conflict is reported — `check` is. */
-  refuseDuplicateValues(d, collection, id, fields, keys) {
+  refuseDuplicateValues(d: Descriptor, collection: string, id: string, fields: Fields, keys: string[]) {
     const unique = Object.entries(d.compiled?.fields ?? {}).filter(([k, f]) => f.unique && !f.many && keys.includes(k))
     if (!unique.length) return
     for (const { id: other, fields: of } of this.readAll(collection)) {
@@ -426,7 +431,7 @@ export class Store {
   /** The file a record of `d` with these `fields` belongs at. For a placed collection the owner
    *  field decides the root — the parent's folder, or the fallback root when it is empty — so a
    *  caller that has no fields (a bare id) must go through the index instead (recordRoot). */
-  filePath(d, id, ext, fields) {
+  filePath(d: Descriptor, id: string, ext?: string, fields?: Fields) {
     assertSafeId(id) // never fs-join an id that can climb out of the collection
     if (storageOf(d).shape === "folder") {
       if (!storageOf(d).entry) throw new Error(`collection "${d.name}" is folder-shape but declares no storage.entry`)
@@ -1034,7 +1039,7 @@ export class Store {
     }
     if (storageOf(d).shape === "folder" && fs.existsSync(this.dir(d))) {
       // legacy file-shape records sit at the TOP of the folder — a folder id is one segment
-      const asFile = { ...d, storage: { ...d.storage, shape: "file" } }
+      const asFile = { ...d, storage: { ...d.storage, shape: "file" as const } }
       for (const name of fs.readdirSync(this.dir(d)).sort()) {
         const p = path.join(this.dir(d), name)
         if (name.startsWith(".") || fs.statSync(p).isDirectory()) continue

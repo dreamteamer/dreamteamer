@@ -6,8 +6,8 @@
 // NEVER modifies a file. returns the exit code.
 import fs from "node:fs"
 import path from "node:path"
-import Ajv from "ajv"
-import addFormats from "ajv-formats"
+import { Ajv } from "ajv"
+import ajvFormats from "ajv-formats"
 import {
   parseRecord,
   patternRe,
@@ -44,6 +44,10 @@ import {
   recordTitleOf,
 } from "./descriptor.ts"
 import type { CheckExtra, WorkspaceRoot } from "./record-types.ts"
+
+// ajv-formats is CommonJS: its module.exports IS the plugin, and also carries it as `.default` — the
+// spelling its types describe.
+const addFormats = ajvFormats.default
 export function check(
   { root }: WorkspaceRoot,
   { extra = [], strictExport = false }: { extra?: CheckExtra[]; strictExport?: boolean } = {}
@@ -85,7 +89,7 @@ export function check(
   for (const [name, d] of descriptors) {
     const ids = new Map()
     index.set(name, ids)
-    const claim = (id, f, repo, layer) => {
+    const claim = (id: string, f: string, repo: string, layer?: string) => {
       if (ids.has(id)) {
         violations.push({
           file: rel(f),
@@ -499,7 +503,7 @@ export function check(
     else console.log(`⚠ ${rel(path.join(ctx.rootOf(repo), EXPORTS_FILE))} is ${msg}`)
   }
   for (const [target, { layer, binary, refs }] of [...layerOnly].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
-    const fix = () => "a workspace reading this one sees it dangle. dt exports"
+    const fix = (_ref?: unknown) => "a workspace reading this one sees it dangle. dt exports"
     if (strictExport) {
       for (const r of refs)
         violations.push({

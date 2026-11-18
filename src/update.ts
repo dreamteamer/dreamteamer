@@ -24,6 +24,7 @@ import {
 import { EXIT } from "./setup.ts"
 import { moduleIdOf } from "./compile.ts"
 import { navGuard, navDocGuard, shipsFragment, NAV_SETTINGS_LINE, NAV_GUARD_LINE } from "./nav-fragments.ts"
+import type { Log, Opener } from "./workspace-types.ts"
 
 const gitOk = (root, args) => {
   try {
@@ -42,7 +43,12 @@ const gitOk = (root, args) => {
 export async function updateModules(
   ws,
   { name = null, version = null, engine = false, allow = new Set(), from = null, noCommit = false } = {},
-  { open, npm = resolveNpm(), log = console.log, processEnv = process.env } = {}
+  {
+    open,
+    npm = resolveNpm(),
+    log = console.log,
+    processEnv = process.env,
+  }: { open?: Opener; npm?: string | null; log?: Log; processEnv?: NodeJS.ProcessEnv } = {}
 ) {
   if (typeof open !== "function") throw new Error("updateModules: opts.open is required")
   const floor = npmFloor(npm)

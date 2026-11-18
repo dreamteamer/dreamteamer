@@ -16,7 +16,12 @@ import type { TemplatePart } from "./record-types.ts"
 const SEQ = "__DT_SEQ__"
 
 /** Render ONE template, or throw if a field it names is missing. The list form loops over this. */
-export function generateId(tpl, fields, existingIds = [], opts = {}) {
+export function generateId(
+  tpl,
+  fields,
+  existingIds: Iterable<string> = [],
+  opts: { onFallback?: (fallback: { field: string; value: string; id: string }) => void } = {}
+) {
   // ⚠ AN ORDERED LIST IS "USE THIS, ELSE THAT" — the only way a descriptor can express a readable
   // latin handle WITHOUT forcing a required field onto every record. `id.generate` takes a string
   // or a list of them, and the FIRST template whose fields are all present wins; a template that
@@ -77,7 +82,12 @@ export function generateId(tpl, fields, existingIds = [], opts = {}) {
   return prefix + (seqPad ? n.padStart(seqPad, "0") : n) + suffix
 }
 
-function applyFilter(name, arg, value, ctx = {}) {
+function applyFilter(
+  name: string,
+  arg: string | undefined,
+  value,
+  ctx: { field?: string; onFallback?: (fallback: { field: string; value: string; id: string }) => void } = {}
+) {
   switch (name) {
     case "date":
       return fmtDate(value, arg || "YYYY-MM-DD")

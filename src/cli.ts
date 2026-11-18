@@ -50,11 +50,13 @@ import { setupCommand, statusLines, renderStatusLines } from "./setup.ts"
 import { installModules, presetMembers } from "./install-modules.ts"
 import { updateModules, parseUpdateArgs } from "./update.ts"
 import { storageOf } from "./descriptor.ts"
+import type { StdioOptions } from "node:child_process"
+import type { Workspace } from "./workspace-types.ts"
 
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
 // reached the user's terminal. stdout stays piped because we read it.
-const QUIET = ["ignore", "pipe", "ignore"]
+const QUIET: StdioOptions = ["ignore", "pipe", "ignore"]
 
 export const USAGE = `usage: dreamteamer <verb> [<target>] [flags]
 
@@ -1218,7 +1220,7 @@ export async function run(argv) {
 }
 
 /** Each installed extension's usage block, headed by its package — '' outside a workspace. */
-function extensionUsage(ws) {
+function extensionUsage(ws: Workspace | undefined) {
   const blocks = (ws?.extensions ?? [])
     .filter(e => Object.keys(e.commands).length)
     .map(
@@ -1231,7 +1233,7 @@ function extensionUsage(ws) {
 }
 
 /** Translate `dt <verb> <target> …` into the noun-verb call the implementation layer takes. */
-function dispatchRecordVerb(ws, verb, args) {
+function dispatchRecordVerb(ws, verb: string, args: string[]): number | undefined {
   const [target, ...rest] = args
   if (!target) throw new Error(`dt ${verb} needs a target — see \`dreamteamer help\``)
   // A flag in the target slot is a word-order mistake, not a collection: without this,

@@ -12,19 +12,20 @@ import { splitRef, canonicalCollection } from "./ref.ts"
 import { storageOf } from "./descriptor.ts"
 import type { CommitOptions, CommitResult, CommitRow } from "./record-types.ts"
 import type { Store } from "./store.ts"
+import type { StdioOptions } from "node:child_process"
 // git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
 // child's stderr to ours unless told otherwise, so a handled "not a git repository" still
 // reached the user's terminal. stdout stays piped because we read it.
-const QUIET = ["ignore", "pipe", "ignore"]
+const QUIET: StdioOptions = ["ignore", "pipe", "ignore"]
 
 // ⚠ `input` does NOT override a `stdio[0]` of 'ignore' — the child gets a closed stdin and git
 // answers an empty batch, which reads as "no record has a pre-image" and names partners that never
 // moved. So the one call that writes to stdin spells its stdio out itself rather than reusing QUIET.
-const QUIET_IN = ["pipe", "pipe", "ignore"]
+const QUIET_IN: StdioOptions = ["pipe", "pipe", "ignore"]
 
 // The two calls that MAKE the commit keep git's stderr, piped: a refusing hook says why on it, and
 // that line is the whole report when the commit fails — so it is read, not inherited or dropped.
-const QUIET_ERR = ["ignore", "pipe", "pipe"]
+const QUIET_ERR: StdioOptions = ["ignore", "pipe", "pipe"]
 
 // One batch is one buffer, and execFileSync's default ceiling is 1 MiB — less than a collection's
 // worth of pre-images. 64 MiB is ~40,000 record files at the size a text record actually runs to,

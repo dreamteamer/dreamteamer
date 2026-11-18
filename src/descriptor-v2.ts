@@ -128,13 +128,13 @@ export function mergeMixins(doc, mixins) {
     for (const k of ["storage", "ids"]) if (m[k]) out[k] = { ...structuredClone(m[k]), ...(out[k] ?? {}) }
     if (m.display) {
       out.display ??= {}
-      for (const [b, v] of Object.entries(m.display))
+      for (const [b, v] of Object.entries(m.display as Record<string, any>))
         out.display[b] = { ...structuredClone(v), ...(out.display[b] ?? {}) }
     }
     constraints.push(...(m.constraints ?? []))
   }
   // fields: the descriptor's own, with the mixins' inserted before the body
-  const own = Object.entries(out.fields ?? {})
+  const own = Object.entries((out.fields ?? {}) as Record<string, any>)
   const bodyAt = own.findIndex(([, f]) => f?.body)
   const merged =
     bodyAt < 0
@@ -197,7 +197,7 @@ export function nameErrors(doc) {
   const from = doc.ids?.from
   for (const t of Array.isArray(from) ? from : from === undefined ? [] : [from])
     errors.push(...validateTemplate(t, { position: "ids.from", fields: names, id: true }))
-  for (const [f, v] of Object.entries(fields))
+  for (const [f, v] of Object.entries(fields as Record<string, any>))
     if (v?.item_title)
       errors.push(
         ...validateTemplate(v.item_title, { position: `fields.${f}.item_title`, fields: Object.keys(v.fields ?? {}) })
@@ -231,7 +231,8 @@ export function mergeOverlays(base, overlays) {
     if (o.constraints) out.constraints = [...(out.constraints ?? []), ...o.constraints]
     if (o.display) {
       out.display ??= {}
-      for (const [b, v] of Object.entries(o.display)) out.display[b] = { ...(out.display[b] ?? {}), ...v }
+      for (const [b, v] of Object.entries(o.display as Record<string, any>))
+        out.display[b] = { ...(out.display[b] ?? {}), ...v }
     }
     for (const [k, v] of Object.entries(o))
       if (!["name", "overlay", "fields", "constraints", "display", "mixins"].includes(k)) out[k] = structuredClone(v)

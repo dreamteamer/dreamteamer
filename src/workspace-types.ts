@@ -256,3 +256,10 @@ export interface Staleness {
   manifest?: Manifest
   message?: string
 }
+
+/** Opens a workspace with its extensions activated — `openWorkspace`, which the layers below the
+ *  surface cannot import, so it is handed in. */
+export type Opener = (at: string) => Promise<Workspace>
+
+/** A logger with console.log's shape. */
+export type Log = (...args: any[]) => void

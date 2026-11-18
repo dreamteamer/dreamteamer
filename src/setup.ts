@@ -62,7 +62,8 @@ export function parseAllow(argv, { also = [] } = {}) {
 }
 
 export class SetupUsage extends Error {
-  constructor(m) {
+  declare code: number
+  constructor(m: string) {
     super(m)
     this.code = EXIT.usage
   }
@@ -309,7 +310,15 @@ export function redact(text) {
  */
 export function judgeEnvAction(
   action,
-  { declared, text, temps = [], exposure = { safe: true }, expect, written = new Map(), unit = null }
+  {
+    declared,
+    text,
+    temps = [],
+    exposure = { safe: true } as { safe: boolean; reason?: string },
+    expect,
+    written = new Map(),
+    unit = null,
+  }
 ) {
   if (!isEnvAction(action)) return action
   const keys = Object.keys(action.env ?? {})
@@ -484,7 +493,7 @@ export async function runUnit(
         continue
       }
       if (refused.has(action.id)) {
-        pending.push(withReason(action, { why: refused.get?.(action.id) ?? "declined" }))
+        pending.push(withReason(action, { why: "declined" })) // `refused` is a Set: it holds no reason
         continue
       }
       const isVerify = action.kind === "verify"
@@ -662,7 +671,7 @@ export function statusLines(ws, { processEnv = process.env } = {}) {
   // module are not modules anybody installs
   const own = ws.pkg?.dreamteamer?.workspace_module ?? "default"
   for (const m of discoverModules(ws.root, ws.pkg).modules) {
-    let manifest = {}
+    let manifest: Record<string, any> = {}
     try {
       manifest = JSON.parse(fs.readFileSync(path.join(m.root, "package.json"), "utf8"))
     } catch {

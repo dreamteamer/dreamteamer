@@ -109,7 +109,7 @@ export const emit = (s: string, fd = 1): void => {
 /** `list` flags that are options, not `field=value` shorthand filters. */
 const LIST_META_FLAGS = new Set(["json", "filter", "where", "sort"])
 
-export function collectionCommand(ws, collection, verb, args) {
+export function collectionCommand(ws, collection: string, verb: string, args: string[]): number | undefined {
   const store = new Store(ws)
   const { flags, pos } = parseArgs(args)
   refuseUnknownFlags(store, collection, verb, flags)
@@ -193,7 +193,7 @@ export function collectionCommand(ws, collection, verb, args) {
     case "get": {
       const id = need(pos, 0, "id")
       // an id no root holds that an exports manifest vouches for (cr-dt-004): named, and still exit 1
-      const ext = store.external(collection, id, { referrer: flags.referrer })
+      const ext = store.external(collection, id, { referrer: flags.referrer as string | undefined })
       if (ext) {
         if (flags.json) emit(JSON.stringify({ $external: { collection, id, ...ext } }, null, 2))
         console.error(
@@ -221,7 +221,7 @@ export function collectionCommand(ws, collection, verb, args) {
           throw new Error(
             `"${collection}" is a \`format: binary\` collection — pass --from <path> with the file to import`
           )
-        const { id: written, file } = store.addFile(collection, id, flags.from, { force: !!flags.force })
+        const { id: written, file } = store.addFile(collection, id, flags.from as string, { force: !!flags.force })
         flags.json
           ? emit(JSON.stringify({ id: written, path: rel(ws.root, file) }))
           : console.log(`✔ ${at}${rel(ws.root, file)}`)
@@ -249,7 +249,7 @@ export function collectionCommand(ws, collection, verb, args) {
         flags[titleField] = pos[0]
       }
       const fields = coerceArrays(d, stripMeta(flags))
-      const { id, file, idFallback, deprecated } = store.add(collection, fields, { id: flags.id })
+      const { id, file, idFallback, deprecated } = store.add(collection, fields, { id: flags.id as string | undefined })
       for (const k of deprecated ?? [])
         console.warn(
           `⚠ ${k} is deprecated on ${collection} — it still validates, and nothing draws it. Check the collection's description for what replaced it.`
@@ -599,7 +599,7 @@ const KIND_COUNT = KINDS.length
  * It counts only what it can count WITHOUT doing the op; an unmeasured term is stated as such in
  * `extra` rather than guessed at, per `rename collections`' dry run.
  */
-function dryRunPlan(what, plan, extra) {
+function dryRunPlan(what: string, plan, extra?: string[]) {
   console.log(`dry run — dreamteamer ${what} would:`)
   console.log(
     `  records ${plan.records ?? 0} · refs ${plan.refs ?? 0} · descriptors ${plan.descriptors ?? 0} · values cleared ${plan.cleared ?? 0}`
@@ -724,7 +724,7 @@ function metaCollectionsSet(ws, store, flags, pos) {
  * nav order is live" while nothing on screen moved, so it now says where the order lives and writes
  * nothing. `module=` stays the move between modules (`dt set collections/<c> module=<m>`).
  */
-function metaCollectionsMove(ws, store, flags, pos) {
+function metaCollectionsMove(ws, store, flags, pos): number | undefined {
   const name = need(pos, 0, "collection name")
   store.descriptor(name)
   throw new Error(
@@ -1153,7 +1153,7 @@ function metaUiView(ws, store, verb, flags, pos) {
   // `set` edits what the record already says; `add` starts from nothing. Reading through the
   // store means `set` works on a MODULE-shipped view too — the edit lands as a workspace source
   // that shadows it, which is the same thing saving one in the UI does.
-  let view = {}
+  let view: Record<string, any> = {}
   let id = oneValue(flags, "id")
   // `module=` on a set is the MOVE, spelled as it is for a collection (`dt set collections/<c>
   // module=<m>`): a value being written, not the `--module` selector `add` takes.
@@ -1446,8 +1446,8 @@ function oneValue(flags, key) {
 
 /** `field=value` positionals, with the same promote-on-repeat rule the flags have. It was
  *  `Object.fromEntries`, which keeps the LAST pair — `dt set c/id tags=a tags=b` wrote `[b]`. */
-function pairs(list) {
-  const out = {}
+function pairs(list: string[]): Record<string, any> {
+  const out: Record<string, any> = {}
   for (const p of list) {
     if (!p.includes("=")) continue
     const k = p.slice(0, p.indexOf("="))
@@ -1700,7 +1700,7 @@ function nearest(word, candidates) {
   )
 }
 
-export function refuseUnknownFlags(store, collection, verb, flags) {
+export function refuseUnknownFlags(store: Store, collection: string, verb: string, flags: Record<string, FlagValue>) {
   // `store` may be null for an entity the store does not know — the refusal is still owed.
   const d = store?.descriptors.get(collection)
   const known =
@@ -1744,7 +1744,7 @@ export function refuseUnknownFlags(store, collection, verb, flags) {
   // VERBS EVEN THOUGH THEIR TARGET IS A DATA COLLECTION — `add-field notes --name x --name y` is the
   // case the old helper was written for, and keying the rule on the target alone excused it.
   if (collection === "ui-views" || (!system && !verb.endsWith("-field") && verb !== "rename-value")) return
-  const dup = Object.entries(flags).find(([, v]) => Array.isArray(v))
+  const dup = Object.entries(flags).find((e): e is [string, (string | boolean)[]] => Array.isArray(e[1]))
   if (dup)
     throw new Error(
       `--${dup[0]} was given ${dup[1].length} times, and a schema verb takes ONE value per flag: ${dup[1].map(x => `--${dup[0]} ${x}`).join(" ")}`
