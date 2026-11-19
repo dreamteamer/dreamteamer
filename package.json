@@ -86,6 +86,7 @@
 		"test:watch": "node --watch scripts/test.ts --unit",
 		"perf": "node test/perf/run.ts",
 		"release:next": "node scripts/release-next.ts",
+		"smoke": "tsx scripts/first-run-smoke.ts",
 		"metrics": "node scripts/metrics.ts",
 		"metrics:check": "node scripts/metrics.ts --check",
 		"layers": "node scripts/layers.ts",

@@ -138,21 +138,9 @@ jobs:
       - name: tests
         run: npm test
 
+      # The first sixty seconds of a new user's life, against the packed tarball (the script says why).
       - name: first-run smoke
-        run: |
-          set -euo pipefail
-          PKG=$(npm pack --silent | tail -1)
-          PKG_PATH="$PWD/$PKG"
-          D=$(mktemp -d)
-          cd "$D"
-          git init -q
-          git config user.email ci@example.com
-          git config user.name CI
-          npm init -y >/dev/null
-          npm install --silent "$PKG_PATH"
-          npx dreamteamer init
-          npx dreamteamer compile
-          npx dreamteamer check
+        run: npm run smoke
 
       - name: publish
         run: npm publish --provenance --access public

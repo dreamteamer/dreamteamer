@@ -22,6 +22,7 @@ import path from "node:path"
 import readline from "node:readline/promises"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import { firstRunSmoke } from "./first-run-smoke.ts"
 
 export const DIST_TAG = "next"
 
@@ -123,27 +124,6 @@ function run(cmd: string, args: string[], cwd = root): void {
   if (r.status !== 0) fail(`${cmd} ${args.join(" ")} exited ${r.status}`)
 }
 
-// A stranger's first minute, against the exact tarball about to be published: install it into an
-// empty git repo, then init → compile → check → write a record → read it back → check.
-function smoke(tarball: string, dir: string, version: string): void {
-  fs.mkdirSync(dir)
-  capture("git", ["init", "-q"], dir)
-  capture("git", ["config", "user.email", "smoke@example.com"], dir)
-  capture("git", ["config", "user.name", "Smoke"], dir)
-  capture("npm", ["init", "-y"], dir)
-  run("npm", ["install", "--silent", "--no-audit", "--no-fund", tarball], dir)
-  const dt = (...args: string[]) => capture("npx", ["--no-install", "dreamteamer", ...args], dir)
-  const reported = dt("--version")
-  if (!reported.includes(version)) fail(`the installed engine reports "${reported}", expected ${version}`)
-  dt("init")
-  dt("compile")
-  dt("check")
-  dt("add", "notes", "--title", "smoke")
-  if (!dt("list", "notes").includes("smoke")) fail("the note written by the smoke is not listed")
-  dt("check")
-  console.log("  ✔ init, compile, check, add, list")
-}
-
 async function main(argv: string[]): Promise<void> {
   const known = new Set(["--full", "--no-names", "--yes"])
   const unknown = argv.filter(a => !known.has(a))
@@ -214,7 +194,11 @@ async function main(argv: string[]): Promise<void> {
     console.log(`  ✔ ${files.length} files clean`)
 
     step("first-run smoke against the tarball")
-    smoke(tarball, path.join(tmp, "smoke"), version)
+    try {
+      firstRunSmoke(tarball, version)
+    } catch (e) {
+      fail(e instanceof Error ? e.message : String(e))
+    }
 
     const size = (fs.statSync(tarball).size / 1024).toFixed(0)
     console.log(

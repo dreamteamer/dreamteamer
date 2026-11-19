@@ -55,7 +55,7 @@ jobs:
 
       # The first sixty seconds of a new user's life, against the packed tarball (the script says why).
       - name: first-run smoke
-        run: bash scripts/first-run-smoke.sh
+        run: npm run smoke
 
   # The npm package is dist/ (built by prepack), and engines still says >=20. The source cannot run
   # there (no type stripping), so node 20 is proven the way a stranger meets it: the packed tarball.
@@ -70,7 +70,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: first-run smoke
-        run: bash scripts/first-run-smoke.sh
+        run: npm run smoke
 
   # The suite runs on Linux only; Windows gets the first-run smoke, which drives compile, check, add,
   # list and get through the paths that broke there (runtime keys and record ids spelled with `\`).
@@ -96,8 +96,7 @@ jobs:
         run: node bin/dreamteamer.js --version
 
       - name: first-run smoke
-        shell: bash
-        run: bash scripts/first-run-smoke.sh
+        run: npm run smoke
 
       # Discovery only: what else the suite says about Windows. Not a gate.
       - name: suite (informational)
