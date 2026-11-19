@@ -49,8 +49,8 @@ test("the scan reports paths for names, credential shapes and Hebrew outside the
     [
       file("dist/a.js", "made for ACME corp"),
       file("dist/b.js", "token npm_" + "a".repeat(36)),
-      file("dist/c.js", "שלום"),
-      file("dist/d.js", "שלום"),
+      file("dist/c.js", "\u05E9\u05DC\u05D5\u05DD"),
+      file("dist/d.js", "\u05E9\u05DC\u05D5\u05DD"),
       file("dist/e.js", "nothing to see"),
     ],
     { names: /acme/i, hebrewAllowed: new Set(["dist/d.js"]) }

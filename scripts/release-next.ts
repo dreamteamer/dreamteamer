@@ -29,7 +29,7 @@ export const DIST_TAG = "next"
 // The same patterns release.yml's leak gate greps for.
 export const SECRET_SHAPES =
   /sk-ant-[A-Za-z0-9_-]{20}|sk-[A-Za-z0-9]{32}|ghp_[A-Za-z0-9]{36}|gho_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{50}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|xox[baprs]-[0-9A-Za-z-]{10,}|glpat-[0-9A-Za-z_-]{20}|npm_[A-Za-z0-9]{36}|-----BEGIN [A-Z ]*PRIVATE KEY-----/
-const HEBREW = /[֐-׿]/
+const HEBREW = /[\u0590-\u05FF]/
 
 // A stable version gets its next patch; a prerelease keeps its core, since it already names an
 // unreleased version. The timestamp orders two builds of one day, and the sha is prefixed with `g`
