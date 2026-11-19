@@ -22,6 +22,36 @@ then `npx dreamteamer compile` and `npx dreamteamer check`.
 
 ---
 
+## Unreleased — the engine is TypeScript
+
+Nothing to do but `dt compile` for a workspace that installs the engine from npm: the package is the
+compiled `dist/`, and it still runs on Node 20. Two things move:
+
+- **The migration scripts moved to `dist/scripts/`, as `.js`.** The commands in older sections below
+  name `node_modules/dreamteamer/scripts/*.mjs`, which no longer exists from this release on. Run them as:
+
+  ```bash
+  node node_modules/dreamteamer/dist/scripts/migrate-descriptors-v2.js --root . [--dry-run]
+  node node_modules/dreamteamer/dist/scripts/migrate-stubs.js --root . [--layers] [--dry-run]
+  ```
+
+- **A module can keep every build output in `dist/`.** Two optional `dreamteamer` keys, for module
+  authors; a module without them behaves exactly as before:
+  - `"skills": "dist/skills"` stages the module's skills from its build instead of `skills/`, so a
+    TypeScript skill script ships compiled with nothing generated beside its source. The staged path
+    (`.dreamteamer/skills/<id>/…`) does not change. A declared folder that is missing or empty fails
+    compile naming it — a `git_modules/` clone or a `modules/` copy of such a module runs its build first.
+    `dt add` / `set` / `rm` / `rename skills/<id>` refuse a skill staged from a build and name its source.
+  - `"scripts": { "<name>": "<file>" }` names the module's runnable scripts, and the new verb
+    **`dt run <module> [<script> [<arg>…]]`** runs one by name — the workspace root as cwd, arguments
+    passed through, exit code returned — or lists them. Replace a path into a package
+    (`node node_modules/@x/y/bin/check-records.mjs`) with `dt run y check-records` once the module
+    declares it; its `UPDATING` note says when. `run` is now a core verb, so an extension of your own
+    that contributes a `run` command is refused — rename it.
+- **A `git_modules/dreamteamer` dev clone needs a build.** `dt` runs the compiled `dist/` in a checkout
+  as in the npm package, and says "not built" when it is missing: run `npm install && npm run build`
+  in the clone, and again after pulling it.
+
 ## 0.49.1 — four fixes for upgrades and everyday writes
 
 Nothing to do but `dt compile`.

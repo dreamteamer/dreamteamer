@@ -1,6 +1,6 @@
 {
 	"name": "dreamteamer",
-	"version": "0.49.1",
+	"version": "0.50.0",
 	"description": "A workspace compiler for coding agents — schema-validated records as plain files over git, compiled into every harness",
 	"license": "Apache-2.0",
 	"author": "Gilad Khen <giladkhen@gmail.com>",
@@ -29,20 +29,20 @@
 		"node": ">=20",
 		"npm": ">=7"
 	},
-	"main": "./src/api.js",
-	"types": "./src/api.d.ts",
+	"main": "./dist/api.js",
+	"types": "./dist/api.d.ts",
 	"exports": {
 		".": {
-			"types": "./src/api.d.ts",
-			"default": "./src/api.js"
+			"types": "./dist/api.d.ts",
+			"default": "./dist/api.js"
 		},
 		"./records": {
-			"types": "./src/records-api.d.ts",
-			"default": "./src/records-api.js"
+			"types": "./dist/records-api.d.ts",
+			"default": "./dist/records-api.js"
 		},
 		"./testing": {
-			"types": "./src/testing.d.ts",
-			"default": "./src/testing.js"
+			"types": "./dist/testing.d.ts",
+			"default": "./dist/testing.js"
 		},
 		"./package.json": "./package.json"
 	},
@@ -53,16 +53,14 @@
 	"files": [
 		"NOTICE",
 		"bin",
-		"src",
+		"dist",
 		"collections",
 		"skills",
 		"agents",
 		"commands",
 		"command-bindings",
 		"ui-views",
-		"mixins",
-		"scripts/migrate-descriptors-v2.mjs",
-		"scripts/migrate-stubs.mjs"
+		"mixins"
 	],
 	"dependencies": {
 		"ajv": "^8.17.1",
@@ -75,14 +73,39 @@
 		"title": "System"
 	},
 	"scripts": {
-		"test": "node scripts/test.mjs",
-		"test:unit": "node scripts/test.mjs --unit",
-		"test:watch": "node --watch scripts/test.mjs --unit",
-		"perf": "node test/perf/run.mjs",
-		"metrics": "node scripts/metrics.mjs",
-		"metrics:check": "node scripts/metrics.mjs --check",
-		"layers": "node scripts/layers.mjs",
-		"verify": "node scripts/layers.mjs && node scripts/metrics.mjs --check && node scripts/test.mjs",
-		"verify:fast": "node scripts/layers.mjs && node scripts/metrics.mjs --check && node scripts/test.mjs --changed"
+		"build": "tsx scripts/build.ts",
+		"prepack": "tsx scripts/build.ts",
+		"typecheck": "tsc -p tsconfig.json",
+		"typecheck:test": "tsc -p test",
+		"contract": "node scripts/contract.ts",
+		"lint": "eslint .",
+		"format": "prettier --write .",
+		"format:check": "prettier --check .",
+		"test": "node scripts/test.ts",
+		"test:unit": "node scripts/test.ts --unit",
+		"test:watch": "node --watch scripts/test.ts --unit",
+		"perf": "node test/perf/run.ts",
+		"release:next": "node scripts/release-next.ts",
+		"smoke": "tsx scripts/first-run-smoke.ts",
+		"metrics": "node scripts/metrics.ts",
+		"metrics:check": "node scripts/metrics.ts --check",
+		"layers": "node scripts/layers.ts",
+		"verify": "node scripts/layers.ts && node scripts/metrics.ts --check && tsc -p tsconfig.json && tsc -p test && npm run lint && npm run format:check && node scripts/test.ts",
+		"verify:fast": "node scripts/layers.ts && node scripts/metrics.ts --check && tsc -p tsconfig.json && tsc -p test && npm run lint && npm run format:check && node scripts/test.ts --changed"
+	},
+	"devDependencies": {
+		"@eslint/js": "^10.0.1",
+		"@types/js-yaml": "^4.0.9",
+		"@types/node": "^22.20.5",
+		"eslint": "^10.14.0",
+		"globals": "^17.14.0",
+		"prettier": "^3.10.1",
+		"tsx": "^4.23.15",
+		"typescript": "^6.0.3",
+		"typescript-eslint": "^8.72.2"
+	},
+	"allowScripts": {
+		"esbuild@0.28.2": true,
+		"fsevents@2.3.3": true
 	}
 }

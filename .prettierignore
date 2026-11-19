@@ -1,0 +1,13 @@
+# Prettier formats the CODE: src/, scripts/, bin/, test/ and the config files. Everything else here is
+# engine input or prose whose exact bytes matter — descriptor/record YAML, skills and docs (Markdown),
+# package.json (npm keeps its own indentation) — so it is never reformatted.
+node_modules/
+dist/
+.build/
+.dreamteamer/
+test/.tmp/
+test/.perf/
+*.md
+*.yaml
+*.yml
+*.json

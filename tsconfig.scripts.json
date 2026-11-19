@@ -1,0 +1,15 @@
+{
+	// The two migrations users run from the npm package (scripts/migrate-*.ts → dist/scripts/*.js). Their
+	// engine imports are typed with `typeof import('../src/…')`, which pulls src/ into this program, so
+	// scripts/build.ts compiles it into a temp dir and copies out only the scripts.
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"noEmit": false,
+		"allowJs": false,
+		"checkJs": false,
+		"rootDir": ".",
+		"declaration": false,
+		"sourceMap": false
+	},
+	"include": ["scripts/migrate-descriptors-v2.ts", "scripts/migrate-stubs.ts"]
+}
