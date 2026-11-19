@@ -14,3 +14,5 @@
 # them makes it fail its own rule — which is exactly what happened on the first attempt.
 test/unit/template.test.js	hebrew	slugOrHash exists FOR non-latin names; these tests pin the hash fallback and its determinism
 test/unit/records.test.js	hebrew	proves patternRe passes the `u` flag so \p{Letter} works on non-latin input
+scripts/release-next.ts	hebrew	the Hebrew range the release scan rejects in a packed tarball — the regex IS the rule
+test/unit/release-next.test.ts	hebrew	the word a fixture tarball carries so the test can prove that release scan refuses it
