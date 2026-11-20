@@ -159,7 +159,7 @@ describe("an env-pointed storage.path that cannot render", () => {
     assert.ok(!tree(ws.root).some(p => p.includes("${env")))
 
     // the collection is unread here, said once, and not a violation: the check gate stays green
-    // on a machine that does not have the folder, the way an uninstalled layer does
+    // on a machine that does not have the folder
     const checked = run("check")
     assert.equal(checked.code, 0, `${checked.stdout}\n${checked.stderr}`)
     assert.match(checked.stdout, /collection notes: .*NOTES_ANNEX.* not read on this machine/)

@@ -295,7 +295,7 @@ describe("location — the folder the operator already knows (§10)", () => {
   test("the enum has no `path` value — discovery never emitted one", () => {
     const ws = twoModuleWorkspace()
     const d = load<any>(readFile(ws.root, ".dreamteamer/collections/modules.collection.yaml"))
-    assert.deepEqual(d.compiled.fields.location.enum, ["modules", "git_modules", "node_modules", "root"])
+    assert.deepEqual(d.compiled.fields.location.enum, ["modules", "node_modules", "root"])
   })
 
   test("the manifest carries BOTH keys for one release", () => {

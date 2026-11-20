@@ -29,10 +29,10 @@ const PEOPLE =
 const TASKS =
   'name: tasks\nstorage:\n  suffix: task\nids:\n  from: "{{ name | slug }}"\nfields:\n  name:\n    type: string\n    required: true\n  assignee:\n    type: people\n'
 
-/** A git-channel module shipping `people` (owner: module) and `tasks` (the default). */
-function withGitModule({ pkg = {}, people = PEOPLE, tasks = TASKS, init = true }: Record<string, any> = {}) {
+/** An inline module that is its own git repo, shipping `people` (owner: module) and `tasks` (the default). */
+function withGitModule({ pkg = {}, people = PEOPLE, tasks = TASKS }: Record<string, any> = {}) {
   const w = workspace({ compile: false })
-  const mod = path.join(w.root, "git_modules", "clinic")
+  const mod = path.join(w.root, "modules", "clinic")
   fs.mkdirSync(path.join(mod, "collections"), { recursive: true })
   fs.writeFileSync(
     path.join(mod, "package.json"),
@@ -40,15 +40,13 @@ function withGitModule({ pkg = {}, people = PEOPLE, tasks = TASKS, init = true }
   )
   fs.writeFileSync(path.join(mod, "collections", "people.collection.yaml"), people)
   fs.writeFileSync(path.join(mod, "collections", "tasks.collection.yaml"), tasks)
-  if (init) {
-    git(mod, ["init", "-q"])
-    // a LOCAL identity, as the layer fixture carries: the store commits in this clone with the
-    // process env, which on a CI runner has no git identity — the helper's GIT_AUTHOR_* never reach it
-    git(mod, ["config", "user.email", "test@example.invalid"])
-    git(mod, ["config", "user.name", "dreamteamer test"])
-    git(mod, ["add", "-A"])
-    git(mod, ["commit", "-qm", "clinic"])
-  }
+  git(mod, ["init", "-q"])
+  // a LOCAL identity: the store commits in this repo with the process env, which on a CI runner has
+  // no git identity — the helper's GIT_AUTHOR_* never reach it
+  git(mod, ["config", "user.email", "test@example.invalid"])
+  git(mod, ["config", "user.name", "dreamteamer test"])
+  git(mod, ["add", "-A"])
+  git(mod, ["commit", "-qm", "clinic"])
   return { w, mod }
 }
 
@@ -58,8 +56,8 @@ describe("storage.owner: module — one collection in the module clone, its sibl
     compileQuietly(w.ws)
     const store = new Store(w.ws)
     const people = storageOf(store.descriptor("people"))
-    assert.equal(people.path, "git_modules/clinic/data/people")
-    assert.equal(people.repo, "git_modules/clinic", "people belong to the module's repo")
+    assert.equal(people.path, "modules/clinic/data/people")
+    assert.equal(people.repo, "modules/clinic", "people belong to the module's repo")
     const tasks = storageOf(store.descriptor("tasks"))
     assert.equal(tasks.path, "data/tasks")
     assert.equal(tasks.repo, ".", "tasks belong to the workspace")
@@ -71,7 +69,7 @@ describe("storage.owner: module — one collection in the module clone, its sibl
     const store = new Store(w.ws)
     store.add("people", { name: "Dana Levi" })
     store.add("tasks", { name: "Call the lab", assignee: "people/dana-levi" })
-    assert.ok(readFile(w.root, "git_modules/clinic/data/people/dana-levi.person.md"))
+    assert.ok(readFile(w.root, "modules/clinic/data/people/dana-levi.person.md"))
     assert.ok(readFile(w.root, "data/tasks/call-the-lab.task.md"))
     assert.equal(w.ws && dt(w.root, "check").code, 0, "the cross-repo reference validates")
 
@@ -91,7 +89,7 @@ describe("storage.owner: module — one collection in the module clone, its sibl
     })
     compileQuietly(w.ws)
     const store = new Store(w.ws)
-    assert.equal(storageOf(store.descriptor("people")).path, "git_modules/clinic/data/people")
+    assert.equal(storageOf(store.descriptor("people")).path, "modules/clinic/data/people")
     assert.equal(storageOf(store.descriptor("tasks")).path, "data/tasks")
     assert.equal(storageOf(store.descriptor("tasks")).repo, ".")
   })
@@ -137,7 +135,7 @@ describe("storage.owner: module — one collection in the module clone, its sibl
     const wsBefore = git(w.root, ["rev-list", "--count", "HEAD"])
     const res = store.rename("people", "dana-levi", "dana-l")
     assert.equal(res.rewrites, 1)
-    assert.ok(readFile(w.root, "git_modules/clinic/data/people/dana-l.person.md"))
+    assert.ok(readFile(w.root, "modules/clinic/data/people/dana-l.person.md"))
     assert.match(readFile(w.root, "data/tasks/call-the-lab.task.md"), /assignee: people\/dana-l\n/)
     assert.equal(
       Number(git(mod, ["rev-list", "--count", "HEAD"])),
@@ -170,16 +168,10 @@ describe("storage.owner: module — one collection in the module clone, its sibl
     assert.equal(history(store, "people", "dana-levi").length, 2)
     const res = store.revert("people", "dana-levi", first)
     assert.equal(res.reverted, true)
-    assert.match(readFile(w.root, "git_modules/clinic/data/people/dana-levi.person.md"), /name: Dana Levi\n/)
+    assert.match(readFile(w.root, "modules/clinic/data/people/dana-levi.person.md"), /name: Dana Levi\n/)
     const cli = dt(w.root, "history", "people/dana-levi")
     assert.equal(cli.code, 0, cli.stderr)
     assert.match(cli.stdout, /edit dana/)
-  })
-
-  test("a module whose records could never be committed is refused", () => {
-    const { w } = withGitModule({ init: false })
-    const pkg = JSON.parse(readFile(w.root, "package.json"))
-    assert.match(compileError({ root: w.root, pkg }), /not a git clone/)
   })
 
   test("storage.owner is module or workspace", () => {

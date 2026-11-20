@@ -95,7 +95,6 @@ const linked = (over = {}): CheckoutState =>
     primaryHasEnv: true,
     envIsLink: false,
     localAssets: [],
-    gitModules: [],
     stale: true,
     postinstall: null,
     ...over,
@@ -174,21 +173,14 @@ describe("planInstall — every step checks before it acts", () => {
   test('a second run is all "already"/"skip" — nothing todo', () => {
     const s = linked({ hasEnv: true, envIsLink: true, stale: false })
     assert.ok(planInstall(s).every(x => x.state !== "todo"))
-    // gitModules is the MISSING or off-ref clones, so an empty one means settled, not undeclared
-    assert.match(byId(planInstall(s), "git_modules").label, /nothing to restore/)
   })
-  test("a clone named by the observer is a todo that says it may be re-pointed", () => {
-    const step = byId(planInstall(linked({ gitModules: ["widgets"] })), "git_modules")
-    assert.equal(step.state, "todo")
-    assert.match(step.label, /restore or re-point widgets/)
-  })
-  test("the id order IS the contract Task 3 renders — engine, env, assets, git modules, compile, postinstall", () => {
+  test("the id order IS the contract Task 3 renders — engine, env, assets, compile, postinstall", () => {
     const s = linked({
       localAssets: [{ rel: ".profiles", module: null, presentHere: false, isLinkHere: false, presentInPrimary: true }],
     })
     assert.deepEqual(
       planInstall(s).map(x => x.id),
-      ["dependencies", "env", "asset:.profiles", "git_modules", "compile", "postinstall"]
+      ["dependencies", "env", "asset:.profiles", "compile", "postinstall"]
     )
   })
 })

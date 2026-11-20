@@ -1,7 +1,7 @@
 // Held-out (0.49.1, rnd/tests/dreamteamer/held-out-0491-exports-write): `dt set` and `dt add` accept the
 // references `dt check` accepts — an id no root holds that the REFERRING record's repo's exports manifest
 // vouches for — and nothing more: many-valued fields, soft references, the wrong target collection, a
-// manifest that does not parse, and a layer record written from a reader. Synthetic fixtures only.
+// manifest that does not parse. Synthetic fixtures only.
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import fs from "node:fs"
@@ -37,44 +37,24 @@ function commitAll(dir, msg) {
   git(dir, ["add", "-A"])
   git(dir, ["commit", "-qm", msg, "--allow-empty"])
 }
-/** A workspace named `pkg` whose shapes come from a bundle clone `org`, holding `files`. */
+/** A workspace named `pkg` whose shapes come from an inline module `org`, holding `files`. */
 function ws({ pkg, files = {} }) {
   const w = workspace({ compile: false })
-  write(path.join(w.root, "git_modules", "org"), {
+  write(path.join(w.root, "modules", "org"), {
     "package.json": JSON.stringify({ name: "org", version: "1.0.0", dreamteamer: {} }),
     "collections/people.collection.yaml": PEOPLE,
     "collections/projects.collection.yaml": PROJECTS,
     "collections/tasks.collection.yaml": TASKS,
   })
-  commitAll(path.join(w.root, "git_modules", "org"), "org")
   const pkgPath = path.join(w.root, "package.json")
   const m = JSON.parse(fs.readFileSync(pkgPath, "utf8"))
   m.name = pkg
-  m.dreamteamer.git_modules = { org: { url: "x", ref: "main" } }
   fs.writeFileSync(pkgPath, JSON.stringify(m, null, "\t") + "\n")
   write(w.root, files)
   commitAll(w.root, "ws")
   w.ws.pkg = m
   compileQuietly(w.ws)
   return w
-}
-/** R reads `w` as the layer `w`: a copy of its committed data and manifest, never its own layers. */
-function readerOf(w, { pkg, files = {} }) {
-  const r = ws({ pkg, files })
-  const dir = path.join(r.root, "git_modules", "w")
-  fs.mkdirSync(dir, { recursive: true })
-  fs.cpSync(path.join(w.root, "package.json"), path.join(dir, "package.json"))
-  fs.cpSync(path.join(w.root, "data"), path.join(dir, "data"), { recursive: true })
-  fs.cpSync(path.join(w.root, MANIFEST), path.join(dir, MANIFEST))
-  write(dir, { "modules/default/package.json": JSON.stringify({ name: "default", dreamteamer: {} }) })
-  commitAll(dir, "w")
-  const pkgPath = path.join(r.root, "package.json")
-  const m = JSON.parse(fs.readFileSync(pkgPath, "utf8"))
-  m.dreamteamer.git_modules.w = { url: "x", ref: "main" }
-  fs.writeFileSync(pkgPath, JSON.stringify(m, null, "\t") + "\n")
-  r.ws.pkg = m
-  compileQuietly(r.ws)
-  return r
 }
 const bytes = (root, rel) => fs.readFileSync(path.join(root, rel), "utf8")
 const T1 = "data/tasks/t1.task.md"
@@ -135,27 +115,5 @@ describe("held-out 0.49.1 — a write accepts exactly the references check accep
     const a = dt(w.root, "add", "tasks", "--name", "t9", "--assignee", "people/dana")
     assert.notEqual(a.code, 0, a.stderr + a.stdout)
     assert.equal(fs.existsSync(path.join(w.root, "data/tasks/t9.task.md")), false)
-  })
-
-  test("a reader: a layer record is judged against the layer's manifest, a new record against the reader's own", () => {
-    const w = ws({ pkg: "w-pkg", files: { [T1]: rec({ name: "t1" }), [MANIFEST]: serializeExports(VOUCHED) } })
-    const r = readerOf(w, {
-      pkg: "r-pkg",
-      files: { [MANIFEST]: serializeExports({ people: { zed: { label: "Zed", from: "far-pkg" } } }) },
-    })
-    const layerFile = path.join("git_modules", "w", T1)
-    const viaLayer = dt(r.root, "set", "tasks/t1", "assignee=people/dana")
-    assert.equal(viaLayer.code, 0, viaLayer.stderr + viaLayer.stdout)
-    assert.match(bytes(r.root, layerFile), /assignee: people\/dana/)
-    const before = bytes(r.root, layerFile)
-    const notTheLayers = dt(r.root, "set", "tasks/t1", "assignee=people/zed")
-    assert.equal(notTheLayers.code, 1, notTheLayers.stderr + notTheLayers.stdout)
-    assert.match(notTheLayers.stderr, /dangling reference "people\/zed"/)
-    assert.equal(bytes(r.root, layerFile), before, "nothing written")
-    const own = dt(r.root, "add", "tasks", "--name", "local", "--assignee", "people/zed")
-    assert.equal(own.code, 0, own.stderr + own.stdout)
-    const notOurs = dt(r.root, "add", "tasks", "--name", "local2", "--assignee", "people/dana")
-    assert.equal(notOurs.code, 1, notOurs.stderr + notOurs.stdout)
-    assert.match(notOurs.stderr, /dangling reference "people\/dana"/)
   })
 })

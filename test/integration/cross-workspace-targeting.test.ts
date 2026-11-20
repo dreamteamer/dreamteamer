@@ -22,7 +22,7 @@ import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
-import { workspace, simpleCollection, dtIn, ENGINE_ROOT } from "../helpers/ws.ts"
+import { workspace, simpleCollection, dtIn } from "../helpers/ws.ts"
 
 /** Two workspaces whose same-named collection disagrees about what `status` may hold. */
 function twoWorkspaces() {
@@ -139,61 +139,5 @@ describe("every record write names the workspace it landed in", () => {
     assert.equal(res.code, 0, res.stderr)
     const parsed = JSON.parse(res.stdout)
     assert.equal(parsed.id, "gearbox", "the JSON payload keeps its shape for scripts")
-  })
-})
-
-// ── the dev-clone re-entry ────────────────────────────────────────────────────────────────────
-//
-// bin/dreamteamer.js RE-IMPORTS ITSELF when the workspace carries a git_modules/dreamteamer clone,
-// so --vault is seen TWICE by the same parsing code. It is spliced out of process.argv, not merely
-// out of the slice handed to run(), for exactly that reason — left in place, the second pass would
-// resolve the path again with the working directory ALREADY MOVED.
-//
-// ⚠ THE FIXTURE HAS TO RUN FROM A SUBDIRECTORY. Two sibling workspaces make double-application
-// accidentally idempotent: `../ws-B` resolved from ws-A and then again from ws-B lands on ws-B both
-// times, so the bug hides. One level deeper, `../../ws-B` resolves correctly the first time and off
-// the end of the tree the second — which is the difference this test is here to see.
-
-/** A second engine whose realpath differs from this one, so the self-shadow guard re-enters. */
-function fakeEngine(at) {
-  fs.mkdirSync(path.join(at, "bin"), { recursive: true })
-  fs.copyFileSync(path.join(ENGINE_ROOT, "bin/dreamteamer.js"), path.join(at, "bin/dreamteamer.js"))
-  for (const link of ["dist", "node_modules", "package.json"]) {
-    fs.symlinkSync(path.join(ENGINE_ROOT, link), path.join(at, link))
-  }
-  return at
-}
-
-describe("--vault survives the dev-clone re-entry", () => {
-  test("a relative --vault from a subdirectory resolves ONCE, with a git_modules clone present", () => {
-    const here = workspace({ collections: { widgets: simpleCollection() } })
-    const there = workspace({ collections: { widgets: simpleCollection() } })
-    assert.equal(dtIn(there.root, "add", "widgets", "--name", "Gearbox").code, 0)
-
-    // the target carries a dev clone, so running against it re-enters bin/dreamteamer.js
-    fs.mkdirSync(path.join(there.root, "git_modules"), { recursive: true })
-    fs.symlinkSync(fakeEngine(path.join(there.root, ".engine-copy")), path.join(there.root, "git_modules/dreamteamer"))
-
-    const from = path.join(here.root, "data")
-    fs.mkdirSync(from, { recursive: true })
-    const rel = path.relative(from, there.root) // ../../ws-XXXX — wrong on a second application
-
-    const res = dtIn(from, "--vault", rel, "list", "widgets")
-    assert.equal(res.code, 0, `the flag was applied twice, or the clone broke the walk:\n${res.stderr}`)
-    assert.match(res.stdout, /gearbox/, "the target's own record should come back")
-    assert.doesNotMatch(res.stderr, /no such directory/, "a second application would resolve off the end of the tree")
-  })
-
-  test("the re-entry actually happened — otherwise the test above proves nothing", () => {
-    const there = workspace({ collections: { widgets: simpleCollection() } })
-    fs.mkdirSync(path.join(there.root, "git_modules"), { recursive: true })
-    fs.symlinkSync(fakeEngine(path.join(there.root, ".engine-copy")), path.join(there.root, "git_modules/dreamteamer"))
-
-    const res = dtIn(there.root, "list", "widgets")
-    assert.match(
-      res.stderr,
-      /git_modules\/dreamteamer dev clone/,
-      "the fixture must exercise the shadow path, not bypass it"
-    )
   })
 })

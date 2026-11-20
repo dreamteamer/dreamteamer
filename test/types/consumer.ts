@@ -81,7 +81,7 @@ async function surface() {
   accept<"placement" | "shape">(plan.moves[0].why)
 
   const s: Storage = dt.storageOf(d)
-  accept<string>(s.roots[0].path)
+  accept<string>(s.path)
   accept<"md" | "yaml" | "json" | "binary">(s.format)
   accept<Manifest | null>(dt.readManifest("/w"))
   const p: Presentation = dt.presentation(store.descriptors)

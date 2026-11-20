@@ -114,12 +114,14 @@ describe("§13 — the error messages the implementation must ship", () => {
     assert.match(res.stderr, /or move people as well/)
   })
 
-  test("a schema write into git_modules is never a rollback", () => {
-    // the full git-shape assertion lives in schema-commit-repo.test.js; this pins the SENTENCE
+  test("a schema write into a module that is its own repo is never a rollback", () => {
+    // the full assertion lives in schema-commit-repo.test.ts; this pins the SENTENCE
     const ws = twoModuleWorkspace()
-    const clone = path.join(ws.root, "git_modules", "hr")
-    fs.mkdirSync(path.dirname(clone), { recursive: true })
-    fs.renameSync(path.join(ws.root, "modules", "hr"), clone)
+    const clone = path.join(ws.root, "modules", "hr")
+    ws.git(["rm", "-rq", "--cached", "--", "modules/hr"])
+    fs.appendFileSync(path.join(ws.root, ".gitignore"), "\n/modules/hr/\n")
+    ws.git(["add", ".gitignore"])
+    ws.git(["commit", "-qm", "workspace: hr is its own repo"])
     for (const args of [
       ["init", "-q"],
       ["config", "user.email", "t@example.invalid"],
@@ -129,12 +131,10 @@ describe("§13 — the error messages the implementation must ship", () => {
     ]) {
       execFileSync("git", args, { cwd: clone, stdio: "ignore" })
     }
-    ws.git(["add", "-A", "--", "modules"])
-    ws.git(["commit", "-qm", "workspace: hr moved to a clone"])
     assert.equal(ws.dt("compile").code, 0)
     const res = ws.dt("add-field", "hr/positions", "--name", "grade", "--type", "integer")
     assert.equal(res.code, 0, res.stdout + res.stderr)
-    assert.match(res.stdout, /✔ committed in git_modules\/hr/)
+    assert.match(res.stdout, /✔ committed in modules\/hr/)
     assert.match(res.stdout, /push when ready/)
     assert.doesNotMatch(res.stdout + res.stderr, /rolled back/)
   })
@@ -151,27 +151,24 @@ describe("§13 — the error messages the implementation must ship", () => {
     assert.match(res.stderr, /dt help/)
   })
 
-  test("compile before dt install on a fresh clone names dt install", () => {
+  test("the retired git_modules key: empty warns and asks to be deleted; declaring a module fails compile", () => {
     const ws = twoModuleWorkspace({ compile: false })
-    // a lockfile entry whose clone is absent — exactly what a fresh `git clone` of a vault gives
     const pkgFile = path.join(ws.root, "package.json")
-    const pkg = JSON.parse(fs.readFileSync(pkgFile, "utf8"))
-    pkg.dreamteamer.git_modules = { billing: { url: "file:///nonexistent", ref: "main" } }
-    fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, "\t") + "\n")
-    // a collection referencing one the absent module would provide
-    fs.writeFileSync(
-      path.join(ws.root, "modules/core/collections/invoices.collection.yaml"),
-      'name: invoices\ndescription: A bill.\nids:\n  from: "{{ name | slug }}"\nstorage:\n  suffix: invoice\n' +
-        "fields:\n  name:\n    type: string\n    required: true\n" +
-        "  payer:\n    type: billing-accounts\n"
-    )
-    const res = ws.dt("compile")
-    assert.equal(res.code, 1)
-    assert.match(res.stderr, /billing-accounts/)
+    const setKey = value => {
+      const pkg = JSON.parse(fs.readFileSync(pkgFile, "utf8"))
+      pkg.dreamteamer.git_modules = value
+      fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, "\t") + "\n")
+    }
+    setKey({})
+    const empty = ws.dt("compile")
+    assert.equal(empty.code, 0, empty.stderr)
+    assert.match(empty.stderr, /package\.json: dreamteamer\.git_modules is no longer read — delete the empty key/)
+    setKey({ billing: { url: "file:///nonexistent", ref: "main" } })
+    const declared = ws.dt("compile")
+    assert.equal(declared.code, 1)
     assert.match(
-      res.stderr,
-      /dreamteamer install/,
-      "a lockfile entry with no clone is an UNINSTALLED workspace, not a broken reference"
+      declared.stderr,
+      /dreamteamer\.git_modules is no longer read — git modules were removed from the engine\. Vendor each module into modules\/<id> or install it from npm, then delete the key\./
     )
   })
 })

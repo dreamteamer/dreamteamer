@@ -136,17 +136,4 @@ describe("dt fmt", () => {
     assert.match(res.stderr, /dist\/scripts\/migrate-descriptors-v2\.js/)
     assert.equal(readFile(w.root, SRC), WIDGETS)
   })
-
-  test("a source under git_modules/ is skipped, said so, and left alone", () => {
-    const w = fixture()
-    const ext = "git_modules/ext"
-    w.put(`${ext}/package.json`, JSON.stringify({ name: "ext", version: "0.0.1", dreamteamer: {} }))
-    const gadgets =
-      "name: gadgets\nids: { from: '{{ name | slug }}' }\nfields:\n  name: { type: string }\n  notes: { type: markdown, body: true }\n"
-    w.put(`${ext}/collections/gadgets.collection.yaml`, gadgets)
-    const res = w.dt("fmt")
-    assert.equal(res.code, 0, res.stdout + res.stderr)
-    assert.match(res.stdout, /skipped 1 source\(s\) under git_modules\/ and \d+ under node_modules\//)
-    assert.equal(readFile(w.root, `${ext}/collections/gadgets.collection.yaml`), gadgets)
-  })
 })

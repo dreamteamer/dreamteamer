@@ -2,7 +2,7 @@
 // code by its path inside the package, so a module could not move its code into dist/ without a shim at
 // every old path. These pin what the verb promises: the arguments pass through untouched (a `-w` among
 // them is the script's, not the CLI's), the exit code and a killing signal come back, argv[1] is the
-// script's real path so its entry-point guard holds, and a git_modules/ clone shadows the package.
+// script's real path so its entry-point guard holds, and an inline copy under modules/ shadows the package.
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import fs from "node:fs"
@@ -162,13 +162,13 @@ describe("dt run", () => {
     assert.match(r.stderr, /npm run build/)
   })
 
-  test("a git_modules/ clone of the same package shadows the installed one", () => {
+  test("an inline copy of the same package under modules/ shadows the installed one", () => {
     const { root } = withTools()
-    scriptModule(path.join(root, "git_modules", "tools"), "@acme/tools", "clone")
+    scriptModule(path.join(root, "modules", "tools"), "@acme/tools", "clone")
     const r = dt(root, "run", "@acme/tools", "report")
     assert.equal(r.code, 0, r.stderr)
     assert.equal(report(r.stdout).marker, "clone")
-    assert.match(dt(root, "run", "tools").stdout, /\(git_modules\/tools\)/)
+    assert.match(dt(root, "run", "tools").stdout, /\(modules\/tools\)/)
   })
 
   test("compile projects the scripts into the orientation as dt run lines, and refuses a bad shape", () => {

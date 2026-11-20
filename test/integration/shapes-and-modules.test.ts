@@ -87,10 +87,10 @@ describe("a folder-shape collection under a namespace", () => {
 })
 
 describe("a module that owns its data, with a namespaced collection", () => {
-  /** A git-channel module with `owns_data`, shipping a namespaced collection. */
+  /** An inline module that is its own repo, with `owns_data`, shipping a namespaced collection. */
   const withModule = () => {
     const w = workspace({ namespaces: ["health"], compile: false })
-    const mod = path.join(w.root, "git_modules", "clinic")
+    const mod = path.join(w.root, "modules", "clinic")
     fs.mkdirSync(path.join(mod, "collections", "health"), { recursive: true })
     fs.writeFileSync(
       path.join(mod, "package.json"),
@@ -109,8 +109,7 @@ describe("a module that owns its data, with a namespaced collection", () => {
       'name: health/doctors\nstorage:\n  suffix: doctor\nids:\n  from: "{{ name | slug }}"\n' +
         "fields:\n  name:\n    type: string\n    required: true\n"
     )
-    // owns_data on the git channel requires a real clone, or compile refuses (its records could
-    // never be committed — git_modules is gitignored by the workspace)
+    // its own repo, so the records it owns commit there, not in the workspace
     git(mod, ["init", "-q"])
     git(mod, ["add", "-A"])
     git(mod, ["commit", "-qm", "clinic"])
@@ -122,8 +121,8 @@ describe("a module that owns its data, with a namespaced collection", () => {
     compileQuietly(w.ws)
     const store = new Store(w.ws)
     const s = storageOf(store.descriptor("health/doctors"))
-    assert.equal(s.path, "git_modules/clinic/data/health/doctors")
-    assert.equal(s.repo, "git_modules/clinic", "records belong to the module's repo")
+    assert.equal(s.path, "modules/clinic/data/health/doctors")
+    assert.equal(s.repo, "modules/clinic", "records belong to the module's repo")
     assert.equal(s.runtime, false, "workspace data, not build output")
   })
 
@@ -132,12 +131,12 @@ describe("a module that owns its data, with a namespaced collection", () => {
     compileQuietly(w.ws)
     const store = new Store(w.ws)
     store.add("health/doctors", { name: "Dana Levi" })
-    assert.ok(readFile(w.root, "git_modules/clinic/data/health/doctors/dana-levi.doctor.md"))
+    assert.ok(readFile(w.root, "modules/clinic/data/health/doctors/dana-levi.doctor.md"))
 
     // one commit PER REPO: `dt commit` must publish into the module, not the workspace
     const res = dt(w.root, "commit", "-m", "add a doctor")
     assert.equal(res.code, 0, res.stdout + res.stderr)
-    assert.match(res.stdout, /git_modules\/clinic/)
+    assert.match(res.stdout, /modules\/clinic/)
     assert.equal(git(mod, ["status", "--porcelain", "data"]), "", "the module repo is clean")
   })
 
