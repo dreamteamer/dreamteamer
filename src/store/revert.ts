@@ -27,7 +27,7 @@ export function revert(
   // A placed record may have sat in ANOTHER parent's folder at `hash` — the move is what is being
   // reverted — so the historical path is looked up in that commit's tree, not assumed to be today's.
   // `<rev>:<path>` takes `/` on every OS — Windows' path.relative spells it with `\`
-  // in the repo that holds the FILE — a layer record's history is in the layer's clone
+  // in the repo that holds the FILE — a module-owned record's history is in that module's repo
   const fileRepo = path.resolve(store.root, store.repoOfFile(d, file))
   const relPath = store.pathAt(d, id, hash) ?? path.relative(fileRepo, file).split(path.sep).join("/")
   let previousContent
@@ -48,7 +48,7 @@ export function revert(
   // is the whole point of a revert — because `check` re-reads that file and expects a mirror only
   // for a ref it can parse. Qualifying `after` here would attach a mirror check then calls stale.
   const restored = { ...tmpFields }
-  store.validate(d, tmpFields, { repo: store.layerOfFile(d, file)?.layer ?? null })
+  store.validate(d, tmpFields)
   // Restoring an owner field restores its PLACEMENT too — the historical record lived where its
   // historical owner put it, and writing it into whatever folder the record sits in today would
   // leave a file `check` reports the moment it lands. Same rule as `set`: only the owner moves it.

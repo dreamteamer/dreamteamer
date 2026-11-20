@@ -12,7 +12,6 @@ export const MANIFEST_KEYS = [
   "env",
   "auto_commit",
   "harnesses",
-  "git_modules",
   "disable",
   "local_assets",
   "postinstall",
@@ -97,7 +96,7 @@ export const V2_KEYS = [
  * `location` field's vocabulary — see collections/modules.collection.yaml. Keeping the export name
  * on purpose: renaming a symbol under src/ is a cross-repo change, and this one buys nothing.)
  */
-export const CHANNEL_LABEL: Record<string, string> = { inline: "modules", git: "git_modules", npm: "node_modules" }
+export const CHANNEL_LABEL: Record<string, string> = { inline: "modules", npm: "node_modules" }
 
 // ⚠ A MANAGED MARKER INSIDE `dreamteamer.md` IS A REFUSAL, not something to escape around.
 // The file is rendered VERBATIM into a managed block, and `writeBlock` finds that block by the FIRST

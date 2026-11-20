@@ -195,11 +195,11 @@ describe("declared env keys are described, and .env.example names them", () => {
     assert.equal(readFile(ws.root, ".env.example"), text)
   })
 
-  test("a declared git module not cloned yet: nothing is dropped or re-attributed, only added", () => {
+  test("a declared dependency not installed yet: nothing is dropped or re-attributed, only added", () => {
     const ws = twoModuleWorkspace()
     const pkgPath = path.join(ws.root, "package.json")
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"))
-    pkg.dreamteamer.git_modules = { ...(pkg.dreamteamer.git_modules ?? {}), absent: { url: "x", ref: "main" } }
+    pkg.dependencies = { ...(pkg.dependencies ?? {}), absent: "1.0.0" }
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, "\t") + "\n")
     fs.writeFileSync(path.join(ws.root, ".env.example"), "# declared by absent\nABSENT_KEY=\n")
     const r = ensureEnvExample(ws.root, [{ key: "NEW_ONE", modules: ["core"] }], "", { complete: false })

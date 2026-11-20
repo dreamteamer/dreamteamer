@@ -27,7 +27,7 @@ export function materializeRepo(
   fs.mkdirSync(path.dirname(dest), { recursive: true })
   console.log(`… cloning ${fields.url} → ${rp} (${ref})`)
   execFileSync("git", ["clone", "--branch", ref, fields.url, dest], { stdio: "inherit" })
-  // NO buildClone() here, unlike install(): a prototype or app repo is not an npm module and
+  // NO npm install here: a prototype or app repo is not an npm module and
   // must never have `npm install` run in it as a side effect of being materialized.
   return { id, path: rp, present: true, cloned: true, ref }
 }

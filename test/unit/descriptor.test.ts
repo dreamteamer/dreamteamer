@@ -80,8 +80,6 @@ describe("descriptor accessors", () => {
       runtime: false,
       external: false,
       unavailable: null,
-      layers: [],
-      roots: [{ path: "data/health/visits", repo: "." }],
       under: { parent: "patient", subfolder: "visits", collection: "health/patients", id: "independent" },
     })
     assert.equal(D.isRuntime(visits), false)

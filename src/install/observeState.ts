@@ -1,9 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { declaredDeps } from "./declaredDeps.ts"
-import { offRef } from "./offRef.ts"
 import { resolves } from "./resolves.ts"
-import { declaredGitModules } from "../workspace/declaredGitModules.ts"
 import type { PackageJson, Workspace } from "../types.ts"
 import { describeCheckout } from "../lib/git/describeCheckout.ts"
 import { discoverModules } from "../workspace/discoverModules.ts"
@@ -73,33 +71,6 @@ export function observeState(ws: Workspace) {
       isLinkHere: isLink(here(a.rel)),
       presentInPrimary: resolves(there(a.rel)),
     })),
-    // ⚠ THE MISSING clones and the ones off their declared ref, not every declared one. A settled
-    // worktree would otherwise print `▶ git modules: …` for ever, and this is the step whose result
-    // nobody looks at — so the narrowing here is what makes the empty case mean "nothing to do".
-    // … and the ones a clone on disk NEEDS (`declaredGitModules`): missing, off their ref, nothing yet under
-    // a declarer (a clone of its own there is satisfied), or a nested copy missing or off its ref. Before
-    // the first install only this workspace's own are visible.
-    gitModules: [
-      ...new Set([
-        ...[...declaredGitModules(ws.pkg, ws.root).map]
-          .filter(
-            ([n, m]) =>
-              !resolves(here(path.join("git_modules", n))) ||
-              offRef(here(path.join("git_modules", n)), m.ref) ||
-              m.declarers.some(by => by && !resolves(here(path.join(by, "git_modules", n))))
-          )
-          .map(([n]) => n),
-        // a nested copy that is still a LINK (laid while the declarer agreed with the top) is work to do
-        ...declaredGitModules(ws.pkg, ws.root)
-          .nested.filter(
-            c =>
-              isLink(here(path.join(c.by, "git_modules", c.name))) ||
-              !resolves(here(path.join(c.by, "git_modules", c.name))) ||
-              offRef(here(path.join(c.by, "git_modules", c.name)), c.ref)
-          )
-          .map(c => c.name),
-      ]),
-    ],
     stale: !s.compiled || s.stale.length > 0,
     postinstall: ws.pkg.dreamteamer?.postinstall ?? null,
   }

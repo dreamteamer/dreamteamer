@@ -5,7 +5,6 @@ import { fieldsOf, targetsOf } from "../record/descriptor.ts"
 import { displayOf } from "../record/displayOf.ts"
 import { ensureEditorRecommendation } from "./ensureEditorRecommendation.ts"
 import { ensureEnvExample } from "./lib/ensureEnvExample.ts"
-import { layerEntries } from "../workspace/layerEntries.ts"
 import { namespaceProblems } from "./lib/namespaceProblems.ts"
 import { normalizeNamespaces } from "../record/normalizeNamespaces.ts"
 import { parseEnvValues } from "../workspace/parseEnvValues.ts"
@@ -50,7 +49,7 @@ import { toPosix } from "./toPosix.ts"
 // reaches through warnIfStale — does not load the compiler; re-exported for the existing importers
 export { kindDir, sha256, toPosix }
 export { warnIfStale } from "./warnIfStale.ts"
-import type { CompileLayer, CompiledCollection, DescriptorSource } from "./types.ts"
+import type { CompiledCollection, DescriptorSource } from "./types.ts"
 import type { ModuleSource } from "../workspace/types.ts"
 import { v1ManifestRefusal } from "./v1ManifestRefusal.ts"
 import { v1Refusal } from "./v1Refusal.ts"
@@ -212,16 +211,14 @@ export const locationOf = (source: ModuleSource, wsRoot: string): string =>
 // that into a path, so the module never names its host.
 
 /**
- * Why a module's clone could NOT hold records, or null when it can. Decided from the CHANNEL, never
+ * Why a module could NOT hold records, or null when it can. Decided from the CHANNEL, never
  * by asking git — compile shells out to git nowhere and must keep working in a freshly-`init`ed
  * directory that is not a repo yet. Asked by the module flag and by a descriptor's `storage.owner`
  * alike, so an npm module shipping an owned collection fails the same way.
  */
-function unownableBecause(source: ModuleSource, rel: (p: string) => string): string | null {
+function unownableBecause(source: ModuleSource): string | null {
   if (source.channel === "npm")
-    return `module "${source.name}" is installed under node_modules/ — that path is never committed, so its records could not be saved. Vendor it into modules/ or install it as a git module.`
-  if (source.channel === "git" && !fs.existsSync(path.join(source.root, ".git")))
-    return `${rel(source.root)} is not a git clone — git_modules/ is gitignored by the workspace, so its records could never be committed.`
+    return `module "${source.name}" is installed under node_modules/ — that path is never committed, so its records could not be saved. Vendor it into modules/.`
   return null
 }
 
@@ -231,8 +228,7 @@ function unownableBecause(source: ModuleSource, rel: (p: string) => string): str
  */
 function dataOwningModules(
   sources: ModuleSource[],
-  fail: (msg: string) => never,
-  rel: (p: string) => string
+  fail: (msg: string) => never
 ): Map<string, { root: string; channel: string }> {
   const owners = new Map<string, { root: string; channel: string }>()
   for (const s of sources) {
@@ -245,39 +241,15 @@ function dataOwningModules(
     const flag = mpkg.dreamteamer?.owns_data
     if (flag === undefined || flag === false) continue
     if (flag !== true) fail(`module "${s.name}": "owns_data" must be true or false (got ${JSON.stringify(flag)})`)
-    const why = unownableBecause(s, rel)
+    const why = unownableBecause(s)
     if (why) fail(`module "${s.name}" sets owns_data, but ${why}`)
     owners.set(s.name, { root: s.root, channel: s.channel })
   }
   return owners
 }
 
-/**
- * A layer's data folder, from the clone's own manifest (its `data_path`), default `data`. The clone
- * may be absent — a fresh checkout before `dreamteamer install` — and then the default stands.
- */
-function layerDataPath(root: string, name: string): string {
-  try {
-    return (
-      JSON.parse(fs.readFileSync(path.join(root, "git_modules", name, "package.json"), "utf8")).dreamteamer
-        ?.data_path ?? "data"
-    )
-  } catch {
-    return "data"
-  }
-}
-
 function shadowWarning({ name, winner, loser }: { name: string; winner: string; loser: string }): string {
   return `⚠ module ${name}: ${CHANNEL_LABEL[winner]} copy shadows ${CHANNEL_LABEL[loser]} copy`
-}
-
-/** The `name` in a folder's package.json, or null — an absent clone or an unreadable file is unknown. */
-function pkgNameAt(dir: string): string | null {
-  try {
-    return JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")).name ?? null
-  } catch {
-    return null
-  }
 }
 
 export function compile(ws: Workspace): 0 {
@@ -324,8 +296,7 @@ export function compile(ws: Workspace): 0 {
   }
 
   // discover sources: channel modules then the workspace's own
-  const { modules: discovered, shadows, disabledModules, layerRefusals } = discoverModules(root, pkg)
-  for (const r of layerRefusals) fail(r)
+  const { modules: discovered, shadows, disabledModules } = discoverModules(root, pkg)
   for (const s of shadows) console.warn(shadowWarning(s))
   const sources = [...discovered]
   // workspace-owned sources: either at the root (classic layout) or in the designated
@@ -373,21 +344,6 @@ export function compile(ws: Workspace): 0 {
   // what every message in this engine already calls it. Defined HERE, above the namespace pass,
   // because a namespace error has to name the module by the id the fix is typed with.
   const moduleId = moduleIdOf
-  // A layer's workspace module (`module: true`) must answer to an id of its own: `default` is the ROLE
-  // every workspace's own module carries, and an id another module holds would merge two modules' records.
-  for (const s of sources.filter(x => x.layer)) {
-    const at = `git_modules.${s.layer}.module`
-    const id = moduleId(s.name)
-    if (id === "default")
-      fail(
-        `${at}: the clone's workspace module is "default" — the role name every workspace's own module carries, so it cannot be told apart from this one's. Name the project's module after the project (its workspace_module, and the folder under modules/).`
-      )
-    const other = sources.find(o => o !== s && moduleId(o.name) === id)
-    if (other)
-      fail(
-        `${at}: the clone's workspace module "${id}" collides with module "${other.name}" at ${rel(other.root) || "."} — a module id names one module. Rename one of them.`
-      )
-  }
   const channelOf = new Map(sources.map(s => [s.name, s.channel]))
   const declaredEnv = new Map<string, string[]>() // env key -> [module names]
   const requestedVars = new Map<string, string[]>() // var a module READS through ${env:…} -> [module names]
@@ -403,7 +359,16 @@ export function compile(ws: Workspace): 0 {
   // the package.json `dreamteamer` block is a closed set of snake_case keys, the workspace's and
   // every module's alike — a key outside it is a typo or a spelling this engine does not read
   const refuseUnknownKeys = (block: DreamteamerBlock | null | undefined, where: string): void => {
-    const bad = Object.keys(block ?? {}).filter(k => !MANIFEST_KEYS.includes(k))
+    // git modules were removed: an empty map (what `init` used to seed) is only a stale key, a populated
+    // one is a workspace whose modules would silently stop compiling
+    if (block?.git_modules !== undefined) {
+      if (Object.keys(block.git_modules ?? {}).length)
+        fail(
+          `${where}: dreamteamer.git_modules is no longer read — git modules were removed from the engine. Vendor each module into modules/<id> or install it from npm, then delete the key.`
+        )
+      console.warn(`⚠ ${where}: dreamteamer.git_modules is no longer read — delete the empty key`)
+    }
+    const bad = Object.keys(block ?? {}).filter(k => k !== "git_modules" && !MANIFEST_KEYS.includes(k))
     // a kebab-case spelling of a key this engine reads is the v1 manifest: the converter rewrites it
     const v1 = v1ManifestRefusal(block, where)
     if (v1) fail(v1)
@@ -662,9 +627,9 @@ export function compile(ws: Workspace): 0 {
             : []
       ),
     ]
-    const complete =
-      !Object.keys(config.git_modules ?? {}).some(n => !fs.existsSync(path.join(root, "git_modules", n))) &&
-      !Object.keys(pkg.dependencies ?? {}).some(n => !fs.existsSync(path.join(root, "node_modules", n, "package.json")))
+    const complete = !Object.keys(pkg.dependencies ?? {}).some(
+      n => !fs.existsSync(path.join(root, "node_modules", n, "package.json"))
+    )
     const env = ensureEnvExample(
       root,
       [...byKey.values()],
@@ -760,7 +725,7 @@ export function compile(ws: Workspace): 0 {
     }
   }
   // npm's `peerDependencies` naming ANOTHER discovered module is a VERSION FLOOR: npm refuses the install
-  // below it, and this refuses the channels npm never saw — a git_modules clone, an inline copy, an
+  // below it, and this refuses the channels npm never saw — an inline copy, an
   // install that went around the peer check. An absent sibling is `dependencies`' business, not this one's.
   {
     const byName = new Map(sources.map(s => [s.name, s]))
@@ -800,20 +765,7 @@ export function compile(ws: Workspace): 0 {
     for (const mod of moduleDeps.keys()) visit(mod, [])
   }
 
-  const dataOwners = dataOwningModules(sources, fail, rel)
-  let layers: CompileLayer[]
-  try {
-    layers = layerEntries(pkg, root).map(l => ({
-      ...l,
-      root: path.posix.join("git_modules", l.name),
-      dataPath: layerDataPath(root, l.name),
-    }))
-  } catch (e) {
-    fail(e.message)
-  }
-  for (const l of layers)
-    if (!fs.existsSync(path.join(root, l.root)))
-      console.warn(`⚠ layer ${l.name} (${l.root}) is not installed — its records are not read; run dreamteamer install`)
+  const dataOwners = dataOwningModules(sources, fail)
 
   const disabled = new Set(config.disable ?? [])
   const disabledHits = new Set<unknown>(disabledModules) // bare entries were applied at discovery
@@ -1155,22 +1107,10 @@ export function compile(ws: Workspace): 0 {
   const engineName = engineId().replace(/@[^@]*$/, "")
   const wsDir = config.workspace_module
   const wsModuleName = wsDir ? sources.find(s => rel(s.root) === path.posix.join("modules", wsDir))?.name : pkg.name
-  // a declared git module whose clone is absent is an UNINSTALLED workspace (a fresh clone), so a
-  // collection error there is named with the install, not left reading as a broken reference
-  const uninstalled = Object.keys(config.git_modules ?? {}).filter(
-    n => !fs.existsSync(path.join(root, "git_modules", n))
-  )
-  const collectionsFail = (msg: string): never =>
-    fail(
-      uninstalled.length
-        ? `${msg}\n  run \`dreamteamer install\` first — dreamteamer.git_modules declares ${uninstalled.join(", ")}, and no clone of ${uninstalled.length === 1 ? "it" : "them"} is on disk yet`
-        : msg
-    )
   const {
     compiled: compiledColls,
     inert: inertSources,
     moduleColls,
-    layerReads,
   } = compileCollections({
     groups: descriptorGroups,
     mixins: mixinDocs,
@@ -1187,14 +1127,12 @@ export function compile(ws: Workspace): 0 {
     dataOwners,
     moduleSources: new Map(sources.map(s => [s.name, s])),
     unownableBecause,
-    layers,
     repoOf: moduleRoot => repoRootOf(moduleRoot, root),
     rel,
-    root,
     dataPath: config.data_path ?? "data",
     vars: storageVars,
     moduleId,
-    fail: collectionsFail,
+    fail,
     warn: m => console.warn(m),
   })
   refusePlacementTransitions(root, compiledColls)
@@ -1265,8 +1203,7 @@ export function compile(ws: Workspace): 0 {
       // §8: the namespaces THIS module declares — projected from its package.json, so
       // `dt list modules` answers "who owns hr?" without reading seven package.json files.
       ...(normalizeNamespaces(mpkg.namespaces).length ? { namespaces: normalizeNamespaces(mpkg.namespaces) } : {}),
-      // §10: the folder name, not an internal channel word. `dt status` then reads
-      // `hr  git_modules @ 3f2a1c (dirty)` and needs no legend.
+      // §10: the folder name, not an internal channel word, so `dt status` needs no legend.
       location: locationOf(source, root),
       path: rel(source.root) || ".",
       // The module's RUNNABLE entry points — `bin/<file>`, the folder NON_SOURCE_DIRS waves through.
@@ -1447,7 +1384,7 @@ export function compile(ws: Workspace): 0 {
         id: moduleId(s.name),
         name: s.name,
         root: rel(s.root) || ".",
-        channel: s.channel as "inline" | "git" | "npm",
+        channel: s.channel as "inline" | "npm",
       })),
       declaredVars: [...declaredVars],
       declaredEnv: [...declaredEnv.keys()],
@@ -1559,19 +1496,9 @@ export function compile(ws: Workspace): 0 {
     // `storage.base` is a field instead of a path test. An older runtime has no key here, which
     // reads as "no namespaces", which is exactly right for a workspace that never declared any.
     namespaces,
-    // What the record layer needs to judge an exports manifest (cr-dt-004) without reading package.json:
-    // this workspace's package name, and per layer its package name, data folder, the folders read from
-    // it and whether `records:` narrows it — completeness itself is judged at run time, on the disk.
+    // What the record layer needs to judge an exports manifest (cr-dt-004) without reading package.json.
     package: pkg.name ?? null,
     data_path: config.data_path ?? "data",
-    layers: layers.map(l => ({
-      name: l.name,
-      root: l.root,
-      data: path.posix.join(l.root, l.dataPath),
-      package: pkgNameAt(path.join(root, l.root)),
-      reads: layerReads.get(l.name) ?? [],
-      narrowed: !!l.records || !!l.skipsSome,
-    })),
     // The extensions this runtime was compiled WITH, and the source kinds they staged — so the next
     // compile can prune a kind whose extension is gone, and `staleness` can walk a contributed kind
     // without loading any extension code.

@@ -87,7 +87,7 @@ const NAV_MOVE = ["json", "after", "before", "top", "bottom"]
 
 export const VERB_FLAGS: Record<string, string[]> = {
   list: ["json", "filter", "where", "sort"],
-  get: ["json", "referrer"],
+  get: ["json"],
   add: ["json", "id", "from", "force"],
   set: JSON_ONLY,
   rm: FORCE_RM,

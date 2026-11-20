@@ -8,15 +8,14 @@ import type { Descriptor, Descriptors } from "../types.ts"
  * match + suffix/format (file shape) or entry (folder shape). non-records → null.
  */
 export function pathToRecord(descriptors: Descriptors, relPath: string): { collection: string; id: string } | null {
-  let best: { d: Descriptor; base: string } | null = null // { d, base } — the longest root, across the write root and every record layer
+  let best: { d: Descriptor; base: string } | null = null // the longest root
   for (const d of descriptors.values()) {
     if (storageOf(d).runtime) continue // runtime entities aren't item events
     if (storageOf(d).unavailable) continue // its path is still the template — a literal `${env:…}/` folder is nobody's record
-    for (const { path: base } of storageOf(d).roots) {
-      if (!base || !relPath.startsWith(base + "/")) continue
-      if (best && base.length <= best.base.length) continue
-      best = { d, base }
-    }
+    const base = storageOf(d).path
+    if (!base || !relPath.startsWith(base + "/")) continue
+    if (best && base.length <= best.base.length) continue
+    best = { d, base }
   }
   if (!best) return null
   const rest = relPath.slice(best.base.length + 1)

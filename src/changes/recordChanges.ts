@@ -3,7 +3,6 @@ import { deriveEvents } from "./deriveEvents.ts"
 import type { Store } from "../store/Store.ts"
 import { commitPending } from "./commitPending.ts"
 import { foldChanges } from "./foldChanges.ts"
-import { layerOf } from "./layerOf.ts"
 import { rowChanges } from "./rowChanges.ts"
 import type { RecordChange } from "./types.ts"
 
@@ -27,7 +26,6 @@ export function recordChanges(store: Store, { since = "HEAD" }: { since?: string
           ref: `${e.collection}/${e.id}`,
           path: e.path,
           repo: e.repo,
-          layer: layerOf(store.descriptors, e.repo),
           change: CHANGE_OF[e.type],
         }))
   // `type` is the 0.41.0 spelling of `change`, kept so a reader of the old JSON keeps working

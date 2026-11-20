@@ -7,7 +7,7 @@ use_when: >-
   per machine) before assuming a path or concluding a clone is unreachable; `dt status` reports
   each one and `dt install repos/<id>` materializes it
 # Owns CLONE LIFECYCLE ONLY — a repo record never contributes schema, skills or UI (that is what a
-# module is, declared in package.json `dreamteamer.git_modules`, because modules must be restorable
+# module is, under modules/<id>/ or pinned in package.json, because modules must be installable
 # BEFORE compile can run). Working trees are materialized on demand, never as part of making a
 # checkout ready. Internal: workspace plumbing rather than a domain noun, so it is drawn on the
 # schema surface; its records are ordinary, writable, committed data.

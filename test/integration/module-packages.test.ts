@@ -64,19 +64,6 @@ describe("a dependency whose root carries modules/ is a package of modules", () 
     assert.ok(compiled.includes("crates") && compiled.includes("lanes"), compiled.join(", "))
   })
 
-  test("a git_modules clone with modules/ unpacks the same way, on the git channel", () => {
-    const { root, ws } = workspace({ compile: false })
-    bundle(path.join(root, "git_modules", "family"), "family", ["crates"])
-    const { modules } = discoverModules(root, ws.pkg)
-    const crates = modules.find(m => m.name === "crates")
-    assert.ok(crates, "the clone's sub-module was not discovered")
-    assert.equal(crates.channel, "git")
-    assert.equal(
-      modules.find(m => m.name === "family"),
-      undefined
-    )
-  })
-
   test("a dependency root WITHOUT modules/ is still exactly one module (the shape every existing consumer relies on)", () => {
     const { root } = workspace({ compile: false })
     const pkgPath = path.join(root, "package.json")

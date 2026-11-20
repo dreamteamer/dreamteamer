@@ -9,10 +9,7 @@ export function* recordFiles(store: Store) {
   for (const d of store.descriptors.values()) {
     if (storageOf(d).unavailable) continue // an env-pointed root this machine cannot render: nothing to walk
     // for runtime-based collections, inbound-ref surgery targets SOURCES, not the runtime
-    // a layer's records name records of this workspace too, so a removal or a rename must see them
-    const dirs = storageOf(d).runtime
-      ? store.sourceRoots().map(r => path.join(r, storageOf(d).path))
-      : store.rootsOf(d).map(r => r.abs)
+    const dirs = storageOf(d).runtime ? store.sourceRoots().map(r => path.join(r, storageOf(d).path)) : [store.dir(d)]
     for (const dir of dirs) {
       if (!fs.existsSync(dir)) continue
       for (const f of walk(dir)) {

@@ -159,12 +159,12 @@ A module can reach a workspace in five ways, and a sixth installs several at onc
 |---|---|---|---|
 | 1 | `modules/<workspace module>/` | `init` creates it | the content is this workspace's own |
 | 2 | `modules/<id>/` | `add modules --name <id>` | a domain deserves its own box, or you are building a module to share |
-| 3 | `git_modules/<name>/` | `install --clone <url>` | you share through a Git repository, without a registry |
+| 3 | `node_modules/`, from a Git repository | `install <git-url>` | you share through a Git repository, without a registry |
 | 4 | `node_modules/`, from a file or a folder | `install ./x.tgz` or `install ./folder` | you try a module before it is published |
 | 5 | `node_modules/`, from npm | `install <name>` | it is a versioned release for anyone |
 | 6 | `node_modules/`, one folder per member | `install <preset>`, a **module preset**: a package listing member modules, each at an exact version (`dreamteamer.preset`) | a set of modules should install, update and report together |
 
-When the same module arrives twice, the more local copy wins: `modules/` over `git_modules/` over `node_modules/`. `compile` warns, and `status` shows which copy shadows which.
+When the same module arrives twice, the more local copy wins: `modules/` over `node_modules/`. `compile` warns, and `status` shows which copy shadows which.
 
 ### 1. The workspace's own module
 
@@ -178,22 +178,13 @@ What [step 1](#1-scaffold) scaffolds: a folder in the workspace's own repository
 
 **Moving up:** the folder is already a package. Give it its own repository (3), pack or link it (4), or publish it (5). A module scaffolded without `--package` is marked `"private": true`; give it a real name and drop that line first.
 
-### 3. A Git module
+### 3. A Git repository
 
 ```bash
-npx dreamteamer install --clone <url> northwind
-npx dreamteamer compile
+npx dreamteamer install git+https://github.com/northwind/northwind.git
 ```
 
-This clones the repository into `git_modules/northwind/` and records it in `package.json`:
-
-```json
-"dreamteamer": { "git_modules": { "northwind": { "url": "<url>", "ref": "main" } } }
-```
-
-On a fresh checkout, `npx dreamteamer install` restores every clone from that map, and `npx dreamteamer update` pulls each one forward on its `ref` (fast-forward only). A repository whose root holds a `modules/` folder delivers every module in it.
-
-The same key attaches another **workspace**, which makes it a *record layer*: its records are read here, and its modules are not compiled. Two optional keys on the entry change that: `"records": ["tasks"]` reads only the collections listed, and `"module": true` also compiles that workspace's own module. What a layer itself needs from its own `git_modules` is cloned for you, and an entry you declare yourself overrides the layer's. See "record layers" in [collections.md](skills/using-dreamteamer/references/collections.md).
+npm installs the repository like any package and `package.json` pins it, so a fresh checkout gets it back with `npx dreamteamer install`. A repository whose root holds a `modules/` folder delivers every module in it. To work on the module's own code while a workspace uses it, link a local clone instead (4).
 
 ### 4. A tarball or a folder
 

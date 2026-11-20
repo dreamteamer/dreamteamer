@@ -40,7 +40,6 @@ export const WORKSPACE_FLAGS: Record<string, string[]> = {
   ],
   update: ["engine", "allow", "from", "no-commit"],
   install: [
-    "clone",
     "dry-run",
     "json",
     "link-env",
@@ -55,7 +54,7 @@ export const WORKSPACE_FLAGS: Record<string, string[]> = {
   ],
   compile: ["watch"],
   check: ["strict-export", "alone", "keep"],
-  exports: ["layer", "dry-run", "json"],
+  exports: ["dry-run", "json"],
   status: ["json"],
   doctor: ["strict", "json"],
   setup: ["input", "allow", "authorize", "verify", "skip", "no-input", "json"],

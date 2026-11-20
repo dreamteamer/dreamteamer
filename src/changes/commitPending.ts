@@ -426,12 +426,6 @@ function scopeByRepo(descriptors: Descriptors, only: string[]): Map<string, stri
     const repo = storageOf(d).repo
     if (!byRepo.has(repo)) byRepo.set(repo, [])
     byRepo.get(repo).push(p)
-    // a record layer's root is watched in the LAYER's repo — an edit of one of its records is
-    // published there, and skipping it is the "nothing pending" that looks like success
-    for (const r of storageOf(d).roots.slice(1)) {
-      if (!byRepo.has(r.repo)) byRepo.set(r.repo, [])
-      if (!byRepo.get(r.repo).includes(r.path)) byRepo.get(r.repo).push(r.path)
-    }
     // A collection stored UNDER another keeps most of its files inside the parent's folder, so
     // scoping `git status` to its own path alone would sample only the fallback root and report
     // the rest as "nothing pending" — the one report that looks like success. The parent's path
@@ -588,10 +582,8 @@ function commitPlan(store: Store, { only = [], message, dryRun = false }: Commit
   // repo's rows before it can tell a renamed record from a concurrent deletion.
   const sampled: { repo: string; cwd: string; rows: Row[] }[] = []
   for (const [repo, dirs] of byRepo) {
-    // A declared record layer not cloned yet — a fresh checkout before `dt install` — has nothing
-    // pending by construction. Spawning git in a folder that does not exist threw ENOENT out of
-    // the WHOLE verb, so not one record of this workspace could be published; check and status
-    // already say the layer is not installed.
+    // A repo folder that does not exist has nothing pending; spawning git there would throw ENOENT
+    // out of the whole verb.
     if (repo !== "." && !fs.existsSync(path.resolve(store.root, repo))) continue
     const { cwd, rows } = sample(store.root, repo, dirs, store.descriptors)
     sampled.push({ repo, cwd, rows })

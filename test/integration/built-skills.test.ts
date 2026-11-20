@@ -62,18 +62,12 @@ function declareDep(root: string, dep?: [name: string, spec: string]): Workspace
   return { root, pkg }
 }
 
-/** The four channels a module arrives through, each placing `@acme/greeter` and returning the workspace. */
+/** The three channels a module arrives through, each placing `@acme/greeter` and returning the workspace. */
 const CHANNELS: Record<string, (opts?: Parameters<typeof skillModule>[2]) => { ws: Workspace; moduleRoot: string }> = {
   "a copy under modules/": opts => {
     const { root } = workspace({ compile: false })
     const moduleRoot = path.join(root, "modules", "greeter")
     skillModule(moduleRoot, "greeter", opts)
-    return { ws: declareDep(root), moduleRoot }
-  },
-  "a git_modules/ clone": opts => {
-    const { root } = workspace({ compile: false })
-    const moduleRoot = path.join(root, "git_modules", "greeter")
-    skillModule(moduleRoot, "@acme/greeter", opts)
     return { ws: declareDep(root), moduleRoot }
   },
   "an npm package": opts => {

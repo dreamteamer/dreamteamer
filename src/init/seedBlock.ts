@@ -33,7 +33,6 @@ export function seedBlock(flags: Flags = {}, existing: DreamteamerBlock = {}): D
     // misreading it invites — `default/tasks` — is a compile error whose message states the rule.
     // Override with `--workspace_module <name>` if a workspace wants its own spelling.
     workspace_module: (flags.workspace_module ?? "default") as string,
-    git_modules: {},
     disable: [],
     ...existing,
   }

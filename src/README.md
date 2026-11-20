@@ -56,8 +56,8 @@ Files: [check/check.ts](check/check.ts)
 dreamteamer check — validate every record against the compiled descriptors.
 report-only: JSON Schema (ajv), id patterns, reference resolution, stray files, plus any
 `extra` violations a caller gathered (extension checks), reported after the schema's — an item marked
-`warning` is printed as a warning and never counted. Under `strictExport` a reference this workspace's
-own records reach only through a layer is a violation rather than a ⚠ line: a workspace reading this one without its layers would see them break.
+`warning` is printed as a warning and never counted. Under `strictExport` a stale exports manifest is a
+violation rather than a ⚠ line.
 NEVER modifies a file. returns the exit code.
 
 ## checkout
@@ -94,7 +94,7 @@ an INTERNAL pair, not what the operator types; `dt add collections` is what they
 
 ## commit
 
-Files: [changes/recordChanges.ts](changes/recordChanges.ts) · [record/consts.ts](record/consts.ts) · [changes/commitPending.ts](changes/commitPending.ts) · [changes/composeSubject.ts](changes/composeSubject.ts) · [lib/git/inProgress.ts](lib/git/inProgress.ts) · [changes/layerOf.ts](changes/layerOf.ts) · [changes/rowChanges.ts](changes/rowChanges.ts) · [record/types.ts](record/types.ts)
+Files: [changes/recordChanges.ts](changes/recordChanges.ts) · [record/consts.ts](record/consts.ts) · [changes/commitPending.ts](changes/commitPending.ts) · [changes/composeSubject.ts](changes/composeSubject.ts) · [lib/git/inProgress.ts](lib/git/inProgress.ts) · [changes/rowChanges.ts](changes/rowChanges.ts) · [record/types.ts](record/types.ts)
 
 dt commit — publish what is already on disk. Model: GIT IS THE JOURNAL. There is no pending
 file and no cursor; the set of things to commit is sampled from `git status` over the record
@@ -200,9 +200,8 @@ auditable and replayable forever. history IS the queue; there is no events file.
 
 Files: [exports/planExports.ts](exports/planExports.ts) · [exports/runExports.ts](exports/runExports.ts)
 
-dt exports [--layer <name> …] [--dry-run] [--json] — write a repo's exports manifest from this
-context (cr-dt-004). Bare: this workspace's own; --layer: that layer's, written into its clone — how a
-reader records the ids a layer names in the reader, which the layer alone cannot see. The rules are
+dt exports [--dry-run] [--json] — bring this workspace's exports manifest level with its records
+(cr-dt-004). The rules are
 src/record/regenerate.ts, shared with `check`, so `check` names a manifest stale exactly when this
 would change or drop one of its entries. Writes and commits ONE path, `dreamteamer-exports.json`.
 
@@ -210,12 +209,12 @@ would change or drop one of its entries. Writes and commits ONE path, `dreamteam
 
 Files: [check/isStale.ts](check/isStale.ts) · [exports/serializeExports.ts](exports/serializeExports.ts) · [record/collectRefFields.ts](record/collectRefFields.ts) · [record/sees.ts](record/sees.ts) · [record/valuesAt.ts](record/valuesAt.ts) · [record/exportsContext.ts](record/exportsContext.ts) · [record/outsideRefs.ts](record/outsideRefs.ts) · [record/readExports.ts](record/readExports.ts) · [record/regenerate.ts](record/regenerate.ts) · [record/types.ts](record/types.ts)
 
-The exports manifest (cr-dt-004) — `dreamteamer-exports.json` at a repo root: per id that repo's own
-records name and no file of the repo holds, a display label and the package name of the workspace that
-held it when the entry was written. A reader reads a layer WITHOUT that layer's own layers, so this is
-the repo's proof that such an id exists elsewhere. Written only by `dt exports`; `check` reads it.
+The exports manifest (cr-dt-004) — `dreamteamer-exports.json` at the workspace root: per id its records
+name and no record here holds, a display label and optionally the package name of the workspace holding
+it. It is the workspace's proof that such an id exists elsewhere. Kept by `dt exports`; `check` and every
+write read it.
 
-Record layer: pure over the roots, descriptors and the facts compile recorded in the runtime — it never
+Record layer: pure over the descriptors and the facts compile recorded in the runtime — it never
 reads package.json. One walk of a repo's references (`outsideRefs`) and one judgement (`regenerate`)
 serve `check`, `dt exports` and the migration script, so the three cannot disagree.
 
@@ -349,7 +348,7 @@ implementation here, three callers (CLI, server, extension).
 
 ## init
 
-Files: [repos/materializeRepo.ts](repos/materializeRepo.ts) · [repos/repos.ts](repos/repos.ts) · [init/consts.ts](init/consts.ts) · [init/init.ts](init/init.ts) · [init/initFootprint.ts](init/initFootprint.ts) · [init/seedBlock.ts](init/seedBlock.ts) · [install/commitOf.ts](install/commitOf.ts) · [install/install.ts](install/install.ts) · [install/installClone.ts](install/installClone.ts) · [install/isLink.ts](install/isLink.ts) · [install/offRef.ts](install/offRef.ts) · [update/update.ts](update/update.ts) · and 8 more
+Files: [repos/materializeRepo.ts](repos/materializeRepo.ts) · [repos/repos.ts](repos/repos.ts) · [init/consts.ts](init/consts.ts) · [init/init.ts](init/init.ts) · [init/initFootprint.ts](init/initFootprint.ts) · [init/seedBlock.ts](init/seedBlock.ts) · and 8 more
 
 dreamteamer init — write the workspace skeleton into the current directory.
 non-interactive: flags override sensible defaults (RAD phase; prompts later).
@@ -366,7 +365,7 @@ ranges, and the closure is the presence graph modules already declare (`dreamtea
 the key compile enforces for cross-module references). A folder of tarballs (`--from <dir>`) stands
 in for the registry — the offline form candidates and acceptance use.
 
-The other `install` forms — make THIS checkout ready, `--clone`, `repos/<id>`, `--hook` — stay in
+The other `install` forms — make THIS checkout ready, `repos/<id>`, `--hook` — stay in
 src/checkout.ts and src/init.ts; this file is only the spec form.
 
 ## namespace
@@ -487,7 +486,7 @@ both the validating store (hard, write-time) and check (soft, report-only).
 
 ## relations
 
-Files: [record/expectedMirrors.ts](record/expectedMirrors.ts) · [record/ownersReadIn.ts](record/ownersReadIn.ts) · [record/relationsOf.ts](record/relationsOf.ts) · [record/types.ts](record/types.ts)
+Files: [record/expectedMirrors.ts](record/expectedMirrors.ts) · [record/relationsOf.ts](record/relationsOf.ts) · [record/types.ts](record/types.ts)
 
 Relations, decoded ONCE. A relation is a mirror field (`mirror_of: <owner field>`) in the compiled
 runtime, so check, the store's mirror maintenance, `dt relations`, rebuild and presentation all
@@ -687,7 +686,7 @@ Files: [lib/git/gitOk.ts](lib/git/gitOk.ts) · [update/parseUpdateArgs.ts](updat
 latest release within its ranges (or to the named version), or the engine itself. Re-pinned
 exactly, closure-checked exactly as `dt install` checks it, compiled, committed with install's
 pathspec. A downgrade needs `--allow downgrade`; a development link is skipped and named. Nothing
-here runs on its own, and `dt update` with no target keeps its meaning: git modules fast-forward.
+here runs on its own, and `dt update` with no target is refused.
 A module update is install's steps 2–6 on the whole resolved closure, so a version that adds a
 dependency brings it in and a version that adds a setup unit runs its safe part.
 
@@ -713,11 +712,11 @@ Pure: no fs, no git. Errors are returned, never thrown, so compile attributes ea
 
 ## workspace
 
-Files: [workspace/declaredGitModules.ts](workspace/declaredGitModules.ts) · [compile/ensureEditorRecommendation.ts](compile/ensureEditorRecommendation.ts) · [compile/lib/ensureEnvExample.ts](compile/lib/ensureEnvExample.ts) · [workspace/findWorkspace.ts](workspace/findWorkspace.ts) · [workspace/layerEntries.ts](workspace/layerEntries.ts) · [compile/lib/ensureGitignored.ts](compile/lib/ensureGitignored.ts)
+Files: [compile/ensureEditorRecommendation.ts](compile/ensureEditorRecommendation.ts) · [compile/lib/ensureEnvExample.ts](compile/lib/ensureEnvExample.ts) · [workspace/findWorkspace.ts](workspace/findWorkspace.ts) · [compile/lib/ensureGitignored.ts](compile/lib/ensureGitignored.ts)
 
 workspace discovery: the NEAREST package.json with a `dreamteamer` section wins, except when
 that candidate is only nested inside a higher one as a MODULE — modules are themselves
-dreamteamer packages (fractal), so `git_modules/dreamteamer`, `node_modules/@dreamteamer/*` and
+dreamteamer packages (fractal), so `node_modules/@dreamteamer/*` and
 `modules/<workspace-module>` must all resolve outward to the workspace that contains them.
 It used to be "topmost wins", which got the module cases right by accident and every genuinely
 nested workspace wrong: a workspace living under another one's tree (a vault may keep per-identity

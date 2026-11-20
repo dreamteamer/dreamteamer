@@ -33,7 +33,7 @@ export function set(store: Store, collection: string, id: string, changes: Field
   const previous = fs.readFileSync(file, "utf8")
   const next = { ...fields, ...changes }
   for (const [k, v] of Object.entries(changes)) if (v === null || v === "") delete next[k]
-  store.validate(d, next, { repo: store.layerOfFile(d, file)?.layer ?? null })
+  store.validate(d, next)
   store.refuseDuplicateValues(d, collection, id, next, Object.keys(changes))
   // A placed record FOLLOWS ITS OWNER FIELD: changing it moves the file to the new parent's folder
   // (or back to the fallback root) in this same write, id unchanged. Only a change to THAT field

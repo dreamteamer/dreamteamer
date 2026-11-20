@@ -7,7 +7,7 @@ import { EXPORTS_FILE } from "../record/consts.ts"
 import type { Store } from "./Store.ts"
 
 /**
- * The entry the exports manifest of `repo` (a layer name; null: the write root) holds for an id —
+ * The entry this workspace's exports manifest holds for an id —
  * `{ label, from?, manifest, seen }`, `seen` when its holder is read here (so the entry vouches for
  * nothing: the holder answers, and lacks it) — or null. The one reading `external` and `checkRefs`
  * share, so a write and `check` (src/check/check.ts) reach one verdict on identical bytes.
@@ -15,23 +15,21 @@ import type { Store } from "./Store.ts"
 export function vouched(
   store: Store,
   collection: string,
-  id: string,
-  repo: string | null = null
+  id: string
 ): { label: string; from?: string; manifest: string; seen: boolean } | null {
   const facts = exportsFacts(store.root)
   const ctx = exportsContext({
     root: store.root,
     descriptors: store.descriptors,
     own: facts.own,
-    layers: facts.layers,
     dataPath: facts.data,
   })
-  const e = readExports(ctx.rootOf(repo))?.[collection]?.[id]
+  const e = readExports(store.root)?.[collection]?.[id]
   if (!e) return null
   return {
     label: e.label,
     ...(e.from ? { from: e.from } : {}),
-    manifest: path.relative(store.root, path.join(ctx.rootOf(repo), EXPORTS_FILE)),
+    manifest: path.relative(store.root, path.join(store.root, EXPORTS_FILE)),
     seen: sees(e, collection, ctx),
   }
 }

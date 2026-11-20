@@ -50,9 +50,7 @@ export function unknownVerb(cmd: string): number {
     console.error(
       '✖ unknown verb "ensure" — gone since 0.22.0 (decision 309: install is the one verb that makes a thing present and ready):'
     )
-    console.error(
-      "    dt install                 this checkout — engine, .env, local assets, git modules, compile, postinstall"
-    )
+    console.error("    dt install                 this checkout — engine, .env, local assets, compile, postinstall")
     console.error("    dt install repos/<id>      materialize one attached repo · dt install repos --all")
     return 2
   }

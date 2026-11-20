@@ -170,13 +170,6 @@ export function renameCollection(ws: Workspace, store: Store, oldName: string, n
 
   // Every id BEFORE anything moves — the store's index is keyed on the old collection.
   const ids = [...store.ids(oldName).keys()]
-  for (const [id, f] of store.ids(oldName)) {
-    const layer = store.layerOfFile(d, f)
-    if (layer)
-      throw new Error(
-        `${oldName}/${id} is held by layer ${layer.layer} (${layer.path}) — a collection with records in a record layer is renamed in that workspace first; nothing was renamed`
-      )
-  }
   const oldDir = store.dir(d)
   const newDir = path.join(ws.root, newPath)
   if (newDir !== oldDir && fs.existsSync(newDir)) {

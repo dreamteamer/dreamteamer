@@ -95,7 +95,7 @@ the copy is theirs to maintain, and nothing will later tell them it drifted from
 - **Creating a collection** — cheap to make, expensive to retire: records accumulate, references
   point at it, and deleting it later is a migration, not an undo.
 - **Installing a module** (`dt install <package>`) — its collections start holding records the
-  day it lands. A RECIPE is never installed (`npm i`, `git_modules/`): recipes are copied, and
+  day it lands. A RECIPE is never installed (`npm i`, `dt install`): recipes are copied, and
   importing one re-creates the fork the copy-and-adapt split exists to avoid.
 
 ## common mistakes
@@ -104,7 +104,7 @@ the copy is theirs to maintain, and nothing will later tell them it drifted from
 |---|---|
 | building because you didn't find it in 30 seconds | there are four places to look, and the first is this workspace |
 | searching only the literal word the operator used | the existing thing is usually filed under a synonym — search the concept, not the string |
-| `npm i` / `git_modules` a recipe module | recipes are copied, not installed — importing re-creates the fork the split exists to avoid |
+| `npm i` / `dt install` a recipe module | recipes are copied, not installed — importing re-creates the fork the split exists to avoid |
 | copying a recipe in and keeping all of it | deleting what you won't use IS the adoption step |
 | lifting from a sibling workspace | it holds real personal data; read for reference only |
 | proposing without naming the setup cost | the `.env` keys and the accounts are the actual price |

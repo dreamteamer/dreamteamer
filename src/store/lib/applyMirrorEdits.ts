@@ -35,9 +35,8 @@ export function applyMirrorEdits(
   }
   const toArr = (v: unknown): unknown[] => (v == null ? [] : Array.isArray(v) ? v : [v])
   // A mirror is kept between records of ONE repo. An owner in this workspace naming a target a
-  // layer holds would write into the layer's clone a link that does not exist when that clone is
-  // opened as its own workspace — its `check` would strip it, ours would put it back. So the edit
-  // below skips a target in another repo, and `check` expects mirrors per repo for the same reason.
+  // module's own repo holds would write there a link that does not exist when that repo is read on
+  // its own. So the edit below skips a target in another repo, and `check` expects mirrors per repo for the same reason.
   // `ownerFile` comes from the caller, which just wrote or read it — asking the index here would
   // re-walk the collection on every write, the quadratic shape `_indexAdd` exists to prevent.
   const ownerRepo = store.repoOfFile(d, ownerFile ?? store.ids(d.name).get(id) ?? store.dir(d))

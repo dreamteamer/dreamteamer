@@ -261,7 +261,7 @@ export function workspace(opts: WorkspaceOptions = {}): Fixture {
  * same seeded state. Building that state costs `dt` launches (a few hundred ms each); copying it is a
  * directory copy. Each copy is its own workspace: its own root, git history, Store and cleanup.
  *
- * ⚠ Only for a fixture that records no absolute path of its own (`git_modules/` layers included):
+ * ⚠ Only for a fixture that records no absolute path of its own:
  * a copy is byte-identical, so such a path would still point at the template.
  */
 export function copyWorkspace(from: Fixture): Fixture {

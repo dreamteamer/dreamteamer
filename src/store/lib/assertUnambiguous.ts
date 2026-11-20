@@ -4,7 +4,7 @@ import type { Store } from "../Store.ts"
 
 export function assertUnambiguous(store: Store, collection: string, id: string): void {
   const d = store.descriptor(collection)
-  if (!placementOf(d) && !store.layered(d)) return
+  if (!placementOf(d)) return
   store.ids(collection) // ensures the duplicate memo is current
   const dupes = store._duplicates.get(collection)?.get(id)
   if (dupes)

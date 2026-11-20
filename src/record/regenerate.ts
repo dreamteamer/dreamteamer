@@ -2,23 +2,21 @@ import { sees } from "./sees.ts"
 import type { ExportChange, ExportEntry, ExportRefs, ExportsContext, OutsideRef } from "./types.ts"
 
 /**
- * The manifest `dt exports` would write for `repo` in this context, and why — design §3's rules:
+ * The manifest `dt exports` would write in this context, and why — design §3's rules:
  * add an outside reference that resolves here; refresh a label only where the entry's holder is seen
  * and still has the id (its `from` never changes); fill a holder-less entry whose id resolves here;
- * drop an entry for an id the repo now holds, one whose seen holder lost the id, and — only where this
- * context reads every record of the repo — one nothing references; keep everything else as written.
+ * drop an entry for an id the workspace now holds, one whose seen holder lost the id, and — only where this
+ * context reads every record of the workspace — one nothing references; keep everything else as written.
  */
 export function regenerate({
   current,
   outside,
   ctx,
-  repo,
   held,
 }: {
   current: ExportRefs | null
   outside: Map<string, OutsideRef>
   ctx: ExportsContext
-  repo: string | null
   held: (coll: string, id: string) => boolean
 }): { next: ExportRefs; changes: ExportChange[] } {
   const next: ExportRefs = {}
@@ -26,7 +24,7 @@ export function regenerate({
   const put = (c: string, id: string, e: ExportEntry): void => {
     ;(next[c] ??= {})[id] = e
   }
-  const complete = ctx.complete(repo)
+  const complete = ctx.complete()
   for (const [c, ids] of Object.entries(current ?? {})) {
     for (const [id, e] of Object.entries(ids)) {
       const ref = `${c}/${id}`

@@ -1,6 +1,6 @@
 // The record-change report (0.42.0): what `dt changes` and `dt commit` print, and what a session
 // appends to its reply after a write. Pure functions — the fold of the committed half into the
-// pending half, the grouping by collection AND layer, and the one report line.
+// pending half, the grouping by collection, and the one report line.
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import { foldChanges } from "../../src/changes/foldChanges.ts"
@@ -11,7 +11,7 @@ const ch = (ref, change, extra = {}) => {
   const at = ref.indexOf("/")
   const collection = ref.slice(0, at)
   const id = ref.slice(at + 1)
-  return { collection, id, ref, path: `data/${collection}/${id}.md`, repo: ".", layer: null, change, ...extra }
+  return { collection, id, ref, path: `data/${collection}/${id}.md`, repo: ".", change, ...extra }
 }
 const brief = list => list.map(c => [c.ref, c.change, c.committed])
 
@@ -51,30 +51,19 @@ describe("foldChanges — the committed half folded into the pending half", () =
     assert.equal(out[0].path, "data/companies/northwind/meetings/kickoff.meeting.md")
   })
 
-  test("the same ref in two repos is two records — a layer's copy is not folded into the workspace's", () => {
+  test("the same ref in two repos is two records — a module repo's copy is not folded into the workspace's", () => {
     const out = foldChanges(
       [],
-      [
-        ch("tasks/kickoff", "updated"),
-        ch("tasks/kickoff", "created", { repo: "git_modules/project-a", layer: "project-a" }),
-      ]
+      [ch("tasks/kickoff", "updated"), ch("tasks/kickoff", "created", { repo: "modules/project-a" })]
     )
     assert.equal(out.length, 2)
   })
 
-  test("ordered by collection, then layer (the workspace first), then id", () => {
-    const out = foldChanges(
-      [],
-      [
-        ch("tasks/b", "created", { repo: "git_modules/project-a", layer: "project-a" }),
-        ch("tasks/c", "created"),
-        ch("contacts/z", "deleted"),
-        ch("tasks/a", "created"),
-      ]
-    )
+  test("ordered by collection, then id", () => {
+    const out = foldChanges([], [ch("tasks/c", "created"), ch("contacts/z", "deleted"), ch("tasks/a", "created")])
     assert.deepEqual(
-      out.map(c => `${c.ref}@${c.layer ?? "-"}`),
-      ["contacts/z@-", "tasks/a@-", "tasks/c@-", "tasks/b@project-a"]
+      out.map(c => c.ref),
+      ["contacts/z", "tasks/a", "tasks/c"]
     )
   })
 })
@@ -87,27 +76,26 @@ describe("groupChanges and reportLine — the line a reply ends with", () => {
       ch("contacts/dana-oren", "updated"),
       ch("contacts/harbor-mutual-desk", "updated"),
       ch("meetings/2026/10/kickoff", "deleted"),
-      ch("issues/login-times-out", "created", { repo: "git_modules/project-a", layer: "project-a" }),
+      ch("issues/login-times-out", "created"),
       ch("issues/report-is-empty", "updated"),
     ]
   )
 
-  test("one group per collection AND layer, with counts per verb", () => {
+  test("one group per collection, with counts per verb", () => {
     assert.deepEqual(
       groupChanges(changes).map(({ records, ...g }) => [g, records.length]),
       [
-        [{ collection: "contacts", layer: null, created: 1, updated: 2, deleted: 0 }, 3],
-        [{ collection: "issues", layer: null, created: 0, updated: 1, deleted: 0 }, 1],
-        [{ collection: "issues", layer: "project-a", created: 1, updated: 0, deleted: 0 }, 1],
-        [{ collection: "meetings", layer: null, created: 0, updated: 0, deleted: 1 }, 1],
+        [{ collection: "contacts", created: 1, updated: 2, deleted: 0 }, 3],
+        [{ collection: "issues", created: 1, updated: 1, deleted: 0 }, 2],
+        [{ collection: "meetings", created: 0, updated: 0, deleted: 1 }, 1],
       ]
     )
   })
 
-  test("the line: counts in a fixed order (created, updated, deleted), zero omitted, a layer write named after its collection", () => {
+  test("the line: counts in a fixed order (created, updated, deleted), zero omitted", () => {
     assert.equal(
       reportLine(groupChanges(changes)),
-      "records — contacts: 1 created, 2 updated · issues: 1 updated · issues (project-a): 1 created · meetings: 1 deleted"
+      "records — contacts: 1 created, 2 updated · issues: 1 created, 1 updated · meetings: 1 deleted"
     )
   })
 

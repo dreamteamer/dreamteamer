@@ -1,6 +1,6 @@
 // The exports manifest's pure half (cr-dt-004): its bytes, the one reference walk, and the per-entry
-// rules `dt exports` and `check` share. A context is faked here — `rootsOf`/`complete` are what
-// exportsContext answers from the runtime and the disk, exercised by test/integration/exports.test.js.
+// rules `dt exports` and `check` share. A context is faked here — `own`/`reads`/`complete` are what
+// exportsContext answers from the runtime and the disk, exercised by test/integration/exports.test.ts.
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import { serializeExports } from "../../src/exports/serializeExports.ts"
@@ -8,14 +8,15 @@ import { outsideRefs } from "../../src/record/outsideRefs.ts"
 import { regenerate } from "../../src/record/regenerate.ts"
 import { isStale } from "../../src/check/isStale.ts"
 import { sees } from "../../src/record/sees.ts"
-import type { ContextRoot, ExportsContext, OutsideRef } from "../../src/record/types.ts"
+import type { ExportsContext, OutsideRef } from "../../src/record/types.ts"
 import { desc } from "../helpers/partial.ts"
 
-const ctx = ({ seen = [], complete = true }: Record<string, any> = {}): ExportsContext =>
-  ({
-    rootsOf: () => seen.map(p => ({ package: p, present: true })),
-    complete: () => complete,
-  }) as Partial<ExportsContext> as ExportsContext
+const ctx = ({ own = null, reads = () => true, complete = true }: Record<string, any> = {}): ExportsContext => ({
+  own,
+  root: "/ws",
+  reads,
+  complete: () => complete,
+})
 const nothingHeld = () => false
 
 describe("serializeExports", () => {
@@ -93,7 +94,7 @@ describe("regenerate — design §3", () => {
       })
     )
   const run = (current, out, c = ctx(), held: (c: string, id: string) => boolean = nothingHeld) =>
-    regenerate({ current, outside: outside(out), ctx: c, repo: null, held })
+    regenerate({ current, outside: outside(out), ctx: c, held })
 
   test("1 add: an outside reference that resolves here; none for one that resolves nowhere", () => {
     const { next, changes } = run({}, [
@@ -107,18 +108,18 @@ describe("regenerate — design §3", () => {
     )
     assert.equal(isStale(changes), false, "an addition alone is not staleness")
   })
-  test("2 refresh: only where the holder is seen, and never the from", () => {
+  test("2 refresh: only where the holder is this workspace, and never the from", () => {
     const cur = { people: { ann: { label: "Old", from: "hq" } } }
-    assert.deepEqual(run(cur, [["people/ann", { label: "Ann", from: "hq" }]], ctx({ seen: ["hq"] })).next.people.ann, {
+    assert.deepEqual(run(cur, [["people/ann", { label: "Ann", from: "hq" }]], ctx({ own: "hq" })).next.people.ann, {
       label: "Ann",
       from: "hq",
     })
     assert.deepEqual(
-      run(cur, [["people/ann", { label: "Ann", from: "hq" }]], ctx({ seen: [] })).next.people.ann,
+      run(cur, [["people/ann", { label: "Ann", from: "hq" }]], ctx({ own: "elsewhere" })).next.people.ann,
       { label: "Old", from: "hq" },
-      "unseen holder: kept"
+      "another workspace's holder: kept"
     )
-    const other = run(cur, [["people/ann", { label: "Other", from: "elsewhere" }]], ctx({ seen: ["elsewhere"] }))
+    const other = run(cur, [["people/ann", { label: "Other", from: "elsewhere" }]], ctx({ own: "elsewhere" }))
     assert.deepEqual(
       other.next.people.ann,
       { label: "Old", from: "hq" },
@@ -139,39 +140,38 @@ describe("regenerate — design §3", () => {
     assert.deepEqual(kept.next, cur)
     assert.deepEqual(kept.changes, [])
   })
-  test("3 drop: held by the repo; holder seen and lacking the id (D5); unreferenced only where the repo is read completely", () => {
+  test("3 drop: held by the repo; holder is this workspace and lacks the id (D5); unreferenced only where the repo is read completely", () => {
     const cur = {
       people: { mine: { label: "M" }, lost: { label: "L", from: "hq" }, idle: { label: "I", from: "far" } },
     }
     const out = [["people/lost", null]]
-    const full = run(cur, out, ctx({ seen: ["hq"], complete: true }), (c, id) => id === "mine")
+    const full = run(cur, out, ctx({ own: "hq", complete: true }), (c, id) => id === "mine")
     assert.deepEqual(full.next, {})
     assert.deepEqual(full.changes.map(x => `${x.ref}:${x.kind}`).sort(), [
       "people/idle:drop",
       "people/lost:drop",
       "people/mine:drop",
     ])
-    const partial = run(cur, out, ctx({ seen: [], complete: false }))
-    assert.deepEqual(partial.next, cur, "incomplete, holder unseen: nothing is judged")
+    const partial = run(cur, out, ctx({ own: "elsewhere", complete: false }))
+    assert.deepEqual(partial.next, cur, "incomplete, holder not this workspace: nothing is judged")
     assert.deepEqual(partial.changes, [])
   })
   test("regenerating its own output changes nothing (a fixpoint)", () => {
     const out = [["people/ann", { label: "Ann", from: "hq" }]]
-    const once = run({}, out, ctx({ seen: ["hq"] })).next
-    assert.deepEqual(run(once, out, ctx({ seen: ["hq"] })).changes, [])
+    const once = run({}, out, ctx({ own: "hq" })).next
+    assert.deepEqual(run(once, out, ctx({ own: "hq" })).changes, [])
   })
 })
 
 describe("sees", () => {
-  test("needs a from, a root of the collection with that package, and the clone on disk", () => {
-    assert.equal(sees({ label: "x" }, "people", ctx({ seen: ["hq"] })), false)
-    assert.equal(sees({ label: "x", from: "hq" }, "people", ctx({ seen: ["hq"] })), true)
+  test("needs a from that is this workspace, and the collection read here", () => {
+    assert.equal(sees({ label: "x" }, "people", ctx({ own: "hq" })), false)
+    assert.equal(sees({ label: "x", from: "hq" }, "people", ctx({ own: "hq" })), true)
+    assert.equal(sees({ label: "x", from: "hq" }, "people", ctx({ own: "elsewhere" })), false, "another holder")
     assert.equal(
-      sees({ label: "x", from: "hq" }, "people", {
-        rootsOf: () => [{ package: "hq", present: false } as ContextRoot],
-      } as Partial<ExportsContext> as ExportsContext),
+      sees({ label: "x", from: "hq" }, "people", ctx({ own: "hq", reads: () => false })),
       false,
-      "a removed clone is not seen"
+      "a collection this workspace does not have"
     )
   })
 })

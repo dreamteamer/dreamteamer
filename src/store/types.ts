@@ -1,8 +1,3 @@
-import type { Storage } from "../types.ts"
-
-/** One root a collection's records are read from, resolved: the compiled root plus its absolute path. */
-export type ResolvedRoot = Storage["roots"][number] & { abs: string }
-
 export type Undo = () => void
 
 /**

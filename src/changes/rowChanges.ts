@@ -1,4 +1,3 @@
-import { layerOf } from "./layerOf.ts"
 import { pathToRecord } from "../record/pathToRecord.ts"
 import type { RecordChange, Row } from "./types.ts"
 import type { Descriptors } from "../types.ts"
@@ -9,14 +8,12 @@ import type { Descriptors } from "../types.ts"
  */
 export function rowChanges(descriptors: Descriptors, repo: string, rows: Row[]): RecordChange[] {
   const prefix = repo === "." ? "" : `${repo}/`
-  const layer = layerOf(descriptors, repo)
   const of = (rec: { collection: string; id: string }, rel: string, change: RecordChange["change"]): RecordChange => ({
     collection: rec.collection,
     id: rec.id,
     ref: `${rec.collection}/${rec.id}`,
     path: prefix + rel,
     repo,
-    layer,
     change,
   })
   const out: RecordChange[] = []

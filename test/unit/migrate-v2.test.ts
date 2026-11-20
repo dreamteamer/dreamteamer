@@ -399,7 +399,6 @@ describe("convertPackage", () => {
           dreamteamer: {
             "workspace-module": "default",
             "data-path": "data",
-            "git-modules": {},
             "auto-commit": false,
             "owns-data": true,
             peerDependencies: ["collections/billing/claims", "people"],
@@ -415,7 +414,6 @@ describe("convertPackage", () => {
     assert.deepEqual(Object.keys(pkg.dreamteamer), [
       "workspace_module",
       "data_path",
-      "git_modules",
       "auto_commit",
       "owns_data",
       "peer_collections",

@@ -7,7 +7,7 @@
 // manifest first. The union plus a single-owner rule plus a use-requires-dependency rule keeps the
 // protection and passes the gate.
 //
-// ⚠ The record layer is UNCHANGED by all of this. compile stamps the resolved set into the
+// ⚠ The record half is UNCHANGED by all of this. compile stamps the resolved set into the
 // manifest, and `namespace.js`, `parseRef`, the store, `check` and the extension read it from there
 // — the same shape `storage.base` has.
 import { test, describe } from "node:test"

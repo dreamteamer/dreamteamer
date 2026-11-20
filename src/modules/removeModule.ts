@@ -24,11 +24,6 @@ export function removeModule(
       `module "${id}" is installed by npm (${fields.path}) — remove it from package.json dependencies and run \`npm install\`; a delete under node_modules/ is erased by the next install.`
     )
   }
-  if (fields.location === "git_modules") {
-    throw new Error(
-      `module "${id}" is a clone under ${fields.path}, and its package.json lives in ANOTHER repo — remove it from dreamteamer.git_modules and delete the clone. This verb removes inline modules only.`
-    )
-  }
   if (ws.pkg.dreamteamer?.workspace_module === id) {
     throw new Error(
       `module "${id}" IS this workspace's own module (dreamteamer.workspace_module) — removing it would leave the workspace with no sources of its own. Point workspace_module at another module first.`

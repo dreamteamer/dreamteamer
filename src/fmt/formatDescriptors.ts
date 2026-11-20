@@ -17,7 +17,7 @@ import { writeGated } from "../workspace/writeGated.ts"
  * `dt fmt [<collection>]` — rewrite descriptor and mixin sources in block style with their top-level
  * keys in canonical order (`formatSource`). One collection's sources, or every inline source.
  *
- * A source under `git_modules/` or `node_modules/` belongs to another repo and is only counted: it
+ * A source under `node_modules/` belongs to another repo and is only counted: it
  * is formatted there. A v1 source is refused, every one listed, before anything is written. The
  * write goes through `writeGated` — comment guard, compile gate, one commit per repo.
  * @returns {{ changed: string[], unchanged: number, skipped: string[], commits?: object[] }}

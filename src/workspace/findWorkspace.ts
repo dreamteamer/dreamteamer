@@ -3,7 +3,7 @@ import fs from "node:fs"
 import type { Workspace } from "../types.ts"
 
 /** path segments that mean "the thing below me is a module of the thing above me", never a workspace */
-const MODULE_SEGMENTS = new Set(["node_modules", "git_modules", "modules"])
+const MODULE_SEGMENTS = new Set(["node_modules", "modules"])
 
 export function findWorkspace(start = process.cwd()): Workspace {
   let dir = path.resolve(start)
@@ -30,8 +30,8 @@ export function findWorkspace(start = process.cwd()): Workspace {
   let found = candidates[0]
   for (const higher of candidates.slice(1)) {
     // a workspace named with `--workspace` (bin/dreamteamer.js pins it, for THIS process only — never
-    // in the environment, so no child inherits it) is never climbed out of, even when it is a clone
-    // under another workspace's git_modules/ — that is exactly the case it names.
+    // in the environment, so no child inherits it) is never climbed out of, even when it sits under
+    // another workspace's module folder — that is exactly the case it names.
     if (found.root === (globalThis as Record<symbol, unknown>)[Symbol.for("dreamteamer.workspace")]) break
     if (!nestedAsModule(higher.root, found.root)) break
     found = higher

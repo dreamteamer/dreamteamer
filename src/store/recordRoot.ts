@@ -7,12 +7,6 @@ import type { Store } from "./Store.ts"
 
 export function recordRoot(store: Store, d: Descriptor, id: string): string {
   assertSafeId(id)
-  if (store.layered(d)) {
-    // a record a layer holds is wherever the index found it — its folder for a folder shape
-    const file = store.ids(d.name).get(id)
-    if (!file) throw new Error(`${d.name}/${id}: no such record`)
-    return storageOf(d).shape === "folder" ? path.dirname(file) : file
-  }
   if (storageOf(d).shape === "folder") return path.join(store.dir(d), id)
   // Only the index knows an opaque record's extension, so the on-disk unit is looked up rather
   // than derived. An unknown id is the caller's error either way — `read` says so first. The same

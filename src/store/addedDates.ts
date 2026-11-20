@@ -9,14 +9,14 @@ export function addedDates(store: Store, collection: string): Map<string, string
   if (store._addedDates.has(collection)) return store._addedDates.get(collection)
   const dates = new Map()
   const s = storageOf(store.descriptor(collection))
-  // one `git log` per REPO a root sits in — the write root's, and each record layer's clone
-  for (const root of s.roots) {
-    const repo = path.resolve(store.root, root.repo ?? ".")
+  // one `git log` in the repo the collection sits in
+  {
+    const repo = path.resolve(store.root, s.repo ?? ".")
     const inRepo = (p: string): string => path.relative(repo, path.resolve(store.root, p)).split(path.sep).join("/")
     // every place a record of this collection can sit: its own folder, and — when it is stored under a
     // parent — each parent record's subfolder, so a move between the two is seen as the rename it is
-    const where = [inRepo(root.path)]
-    if (!root.layer && s.under?.collection && s.under.subfolder)
+    const where = [inRepo(s.path)]
+    if (s.under?.collection && s.under.subfolder)
       where.push(`:(glob)${inRepo(storageOf(store.descriptor(s.under.collection)).path)}/**/${s.under.subfolder}/**`)
     try {
       const out = execFileSync(

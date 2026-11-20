@@ -7,16 +7,6 @@ export interface DescriptorSource {
   moduleName: string
 }
 
-/** A record layer as compile reads it: the clone, its data folder, and the collections it narrows to (null: all). */
-export interface CompileLayer {
-  name: string
-  root: string
-  dataPath: string
-  records: string[] | null
-  /** set by compile: some collection here skips one of the layer's, so it is never read completely */
-  skipsSome?: boolean
-}
-
 /** One collection compile resolved: the doc it writes, its resolved fields, its sources and storage facts. */
 export interface CompiledCollection {
   doc: AuthoredDescriptor & { compiled?: Descriptor["compiled"] }

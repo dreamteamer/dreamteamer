@@ -27,14 +27,6 @@ export function rename(
   }
   const oldUnit = store.recordRoot(d, oldId) // folder-shape: move the WHOLE folder
   store._assertContained(d, oldUnit)
-  // A rename rewrites every inbound reference — in THIS workspace. The layer's own workspace holds
-  // references this one cannot see, and a unit moved out of the layer would land in our root
-  // across two repos. Both are the layer's business.
-  const inLayer = store.layerOfFile(d, oldUnit)
-  if (inLayer)
-    throw new Error(
-      `${collection}/${oldId} is held by layer ${inLayer.layer} (${inLayer.path}) — a layer's record is renamed in its own workspace, never from here. nothing was renamed.`
-    )
   // a placed record keeps the folder it is in: a rename changes the id, never the owner — except a
   // NESTED one, whose id begins with its parent's: renaming it to another parent moves it there
   const under = placementOf(d)
@@ -50,11 +42,8 @@ export function rename(
       `${collection}/${newId}: there is no ${under.collection}/${newParent} to move it under — nothing was renamed.`
     )
   // ⚠ The destination is DERIVED, never looked up: recordRoot answers for a record that EXISTS —
-  // from the index for a layered collection and for an opaque one — so asking it for the new id
-  // threw "no such record" on every rename of a workspace-own record once any layer contributed
-  // to the collection (clone on disk or not), and on every rename of a `format: binary` record.
-  // The record is in the write root (a layer's was refused above), so its new unit is the write
-  // root's: the folder for a folder shape, the file otherwise — keeping the extension an opaque
+  // from the index for an opaque one — so asking it for the new id threw "no such record" on every
+  // rename of a `format: binary` record. The new unit is the write root's: the folder for a folder shape, the file otherwise — keeping the extension an opaque
   // record carries, which only its current file name knows.
   const newUnit = nested
     ? path.join(

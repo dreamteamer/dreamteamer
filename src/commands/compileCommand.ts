@@ -9,7 +9,7 @@ export async function compileCommand(args: string[]): Promise<number | void> {
   const ws = await openWorkspace()
   const code = compile(ws)
   if (!args.includes("--watch")) return code
-  console.log("… watching sources (modules/*, git_modules/*, and the workspace root) — ctrl-c to stop")
+  console.log("… watching sources (modules/* and the workspace root) — ctrl-c to stop")
   watchAndRecompile(ws)
 }
 
@@ -28,7 +28,7 @@ function watchAndRecompile(ws: Workspace): void {
   }
   // 'system' plus the flat kinds: the classic layout can put sources at the workspace root under
   // either spelling, and a watcher that misses one makes --watch quietly stop recompiling.
-  for (const dir of ["system", ...kindsOf(ws), "modules", "git_modules"].map(d => path.join(ws.root, d))) {
+  for (const dir of ["system", ...kindsOf(ws), "modules"].map(d => path.join(ws.root, d))) {
     if (fs.existsSync(dir)) fs.watch(dir, { recursive: true }, trigger)
   }
 }

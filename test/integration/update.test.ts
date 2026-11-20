@@ -101,29 +101,24 @@ describe("dt update — one pin forward, on purpose", () => {
     assert.equal(git(ws.root, ["status", "--porcelain"]), "")
   })
 
-  test("dt -w <layer> update compiles the layer, never the workspace that reads it (rnd/tests/dreamteamer/update-compiles-new-extension)", () => {
-    const reader = offline()
-    const layer = offline()
-    assert.equal(run(layer.root, ["install", "@fix/kind@1.0.0", "--from", REG]).code, 0)
-    const lay = path.join(reader.root, "git_modules", "lay")
-    fs.mkdirSync(path.dirname(lay), { recursive: true })
-    fs.renameSync(layer.root, lay)
-    const pkgFile = path.join(reader.root, "package.json")
-    const pkg = JSON.parse(fs.readFileSync(pkgFile, "utf8"))
-    pkg.dreamteamer.git_modules = { ...(pkg.dreamteamer.git_modules ?? {}), lay: { url: "x", ref: "main" } }
-    fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, "\t") + "\n")
-    git(reader.root, ["add", "-A"])
-    git(reader.root, ["commit", "-qm", "declare the layer"])
-    const readerManifest = readFile(reader.root, ".dreamteamer/manifest.yaml")
-    const r = run(reader.root, ["-w", "lay", "update", "@fix/kind", "--from", REG])
+  test("dt -w <path> update compiles the target, never the workspace it ran from (rnd/tests/dreamteamer/update-compiles-new-extension)", () => {
+    const here = offline()
+    const there = offline()
+    assert.equal(run(there.root, ["install", "@fix/kind@1.0.0", "--from", REG]).code, 0)
+    const hereManifest = readFile(here.root, ".dreamteamer/manifest.yaml")
+    const r = run(here.root, ["-w", path.relative(here.root, there.root), "update", "@fix/kind", "--from", REG])
     assert.equal(r.code, 0, r.stderr + r.stdout)
-    assert.equal(installed(lay, "@fix/kind"), "1.1.0")
-    assert.match(readFile(lay, ".dreamteamer/manifest.yaml"), /- kind: gizmos/, "the layer's runtime has the new kind")
-    assert.ok(fs.existsSync(path.join(lay, ".dreamteamer", "gizmos", "one.gizmo.yaml")))
+    assert.equal(installed(there.root, "@fix/kind"), "1.1.0")
+    assert.match(
+      readFile(there.root, ".dreamteamer/manifest.yaml"),
+      /- kind: gizmos/,
+      "the target's runtime has the new kind"
+    )
+    assert.ok(fs.existsSync(path.join(there.root, ".dreamteamer", "gizmos", "one.gizmo.yaml")))
     assert.equal(
-      readFile(reader.root, ".dreamteamer/manifest.yaml"),
-      readerManifest,
-      "the reader's runtime is not recompiled"
+      readFile(here.root, ".dreamteamer/manifest.yaml"),
+      hereManifest,
+      "the workspace it ran from is not recompiled"
     )
   })
 
@@ -229,11 +224,14 @@ describe("dt update — one pin forward, on purpose", () => {
     assert.match(r.stdout, /dreamteamer: a development link — skipped/)
   })
 
-  test("no target keeps its meaning: git modules, and a pointer for npm ones", () => {
+  test("no target is refused, naming the two targets", () => {
     const ws = offline()
     const r = run(ws.root, ["update"])
-    assert.equal(r.code, 0, r.stderr)
-    assert.match(r.stdout, /no git_modules declared/)
+    assert.notEqual(r.code, 0)
+    assert.match(
+      r.stderr,
+      /dt update needs a target — <name>\[@<version>\] moves one module's pin, --engine the engine's/
+    )
   })
 })
 

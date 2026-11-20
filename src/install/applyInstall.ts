@@ -2,7 +2,6 @@ import { type StdioOptions, spawnSync } from "node:child_process"
 import path from "node:path"
 import fs from "node:fs"
 import { declaredDeps } from "./declaredDeps.ts"
-import { install as restoreGitModules } from "./install.ts"
 import { resolves } from "./resolves.ts"
 import type { CheckoutState, InstallStep } from "./types.ts"
 import type { Workspace } from "../types.ts"
@@ -140,7 +139,6 @@ const RUN: Record<string, StepFn> = {
   }),
   env: guard(".env", (ws, st) => placeLink(path.join(st.checkout.primary, ".env"), path.join(ws.root, ".env"))),
   asset: guard("asset", (ws, st, rel) => placeLink(path.join(st.checkout.primary, rel), path.join(ws.root, rel))),
-  git_modules: guard("git modules", ws => restoreGitModules(ws)),
   compile: guard("compile", ws => compile(ws)), // `ws` is REOPENED first — see applyInstall
   postinstall: guard(
     "postinstall",
@@ -178,20 +176,13 @@ export async function applyInstall(
   } = {}
 ): Promise<number> {
   let failed = 0,
-    installed = false,
-    restored = false
+    installed = false
   for (const s of steps) {
     // ⚠ NEW PACKAGES ARE NEW SOURCES. The plan judged the runtime fresh BEFORE npm put a module (or an
     // extension) into node_modules, so a compiled workspace that just gained a dependency kept the
     // old runtime at exit 0. Once dependencies were installed, the compile runs whatever the plan said.
-    // ⚠ A RESTORED LAYER IS A NEW INPUT TOO: compile bakes a layer's package name and data path into the
-    // runtime, and staleness hashes sources only — so a layer the git_modules step just cloned left
-    // `✔ compile: fresh` and a runtime that did not know it (the first review of 0.46.0, finding eng-03).
-    if (s.id === "compile" && (installed || restored) && s.state === "already")
-      Object.assign(s, {
-        label: installed ? "compile: dependencies were just installed" : "compile: git modules were just restored",
-        state: "todo",
-      })
+    if (s.id === "compile" && installed && s.state === "already")
+      Object.assign(s, { label: "compile: dependencies were just installed", state: "todo" })
     const glyph = s.state === "todo" ? "▶" : s.state === "already" ? "✔" : "—"
     log(`${glyph} ${s.label}${s.why ? `\n    ${s.why}` : ""}`)
     if (s.state !== "todo" || dryRun) continue
@@ -214,7 +205,6 @@ export async function applyInstall(
       failed++
       log(`✖ ${s.id} failed (exit ${code})`)
     } else if (kind === "dependencies") installed = true
-    else if (kind === "git_modules") restored = true
   }
   return failed ? 1 : 0
 }
