@@ -120,7 +120,7 @@ It is designed for them. We don't publish benchmarks, so here is what the design
 
 - **Modules.** Each domain is its own package with its own version. The `@dreamteamer/rnd` module, for example, keeps a software lifecycle as records: products, design docs, implementation plans, tests, reviews and releases.
 - **Namespaces.** A module can scope its collections under a prefix (`rnd/issues`), so two domains never fight over a name.
-- **Layers.** A workspace can read another workspace's records by listing its repository under `git_modules`. A head-office workspace can read every project's tasks while each project keeps its own repository, and `--workspace <name>` runs any verb inside one of them.
+- **One workspace, many repositories.** A head-office workspace and each project can keep their own repository, and `--workspace <path>` runs any verb inside another one without leaving the current one.
 - **Many sessions in parallel.** A write does not commit by itself, and `npx dreamteamer commit` can be scoped to one collection or one record, so agents working in the same folder do not sweep up each other's work.
 - **Git.** Branches, reviews and merges work on a workspace the way they work on code.
 

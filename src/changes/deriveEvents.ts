@@ -18,9 +18,7 @@ interface RecordEvent {
  * Record events between two points, across EVERY repo that holds records. `from` is a sha or a
  * date — a sha is meaningless in another repo, so it is resolved to its commit DATE and each
  * repo then resolves that date to its own sha. Still cursor-less and stores nothing, so it can
- * be run twice with no consequence. Every ROOT of a collection is sampled — the write root and
- * each record layer's — and an event carries the repo it was read from; sampling the write root
- * alone answered `events: []` for a commit made in a layer's clone.
+ * be run twice with no consequence. An event carries the repo it was read from.
  */
 export function deriveEvents(root: string, descriptors: Descriptors, from: string, to = "HEAD"): RecordEvent[] {
   commitArg(to)
@@ -28,11 +26,10 @@ export function deriveEvents(root: string, descriptors: Descriptors, from: strin
   for (const d of descriptors.values()) {
     if (storageOf(d).runtime) continue // runtime entities aren't item events
     if (storageOf(d).external || storageOf(d).unavailable) continue // an env-pointed root: no repo here holds its history
-    for (const { path: p, repo } of storageOf(d).roots) {
-      if (!p) continue
-      if (!byRepo.has(repo)) byRepo.set(repo, [])
-      if (!byRepo.get(repo).includes(p)) byRepo.get(repo).push(p)
-    }
+    const { path: p, repo } = storageOf(d)
+    if (!p) continue
+    if (!byRepo.has(repo)) byRepo.set(repo, [])
+    if (!byRepo.get(repo).includes(p)) byRepo.get(repo).push(p)
   }
   const when = asDate(root, from)
   const events: RecordEvent[] = []

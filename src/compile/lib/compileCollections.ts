@@ -1,7 +1,6 @@
 import Ajv from "ajv"
 import addFormats from "ajv-formats"
 import path from "node:path"
-import fs from "node:fs"
 import { targetsOf } from "../../record/descriptor.ts"
 import { baseNameOf, defaultStoragePath, inflects, namespaceOf } from "../../record/namespace.ts"
 import { patternRe } from "../../record/records.ts"
@@ -11,14 +10,13 @@ import { singular } from "../../lib/singular.ts"
 import { storageOverlaps } from "./storageOverlaps.ts"
 import { subpathProblem } from "./subpathProblem.ts"
 import { toJsonSchema } from "./toJsonSchema.ts"
-import { walk } from "../../lib/walk.ts"
 import type { AuthoredDescriptor, Descriptor } from "../../types.ts"
 import { isV2 } from "../isV2.ts"
 import { mergeMixins } from "./mergeMixins.ts"
 import { mergeOverlays } from "./mergeOverlays.ts"
 import { nameErrors } from "./nameErrors.ts"
 import { shapeErrors } from "./shapeErrors.ts"
-import type { CompileLayer, CompiledCollection, DescriptorSource } from "../types.ts"
+import type { CompiledCollection, DescriptorSource } from "../types.ts"
 import type { ModuleSource } from "../../workspace/types.ts"
 import type { SourceRef } from "../types.ts"
 import { v1Refusal } from "../v1Refusal.ts"
@@ -39,11 +37,9 @@ interface CollectionsContext {
   engineName: string
   dataOwners: Map<string, { root: string; channel: string }>
   moduleSources: Map<string, ModuleSource>
-  unownableBecause: (source: ModuleSource, rel: (p: string) => string) => string | null
-  layers?: CompileLayer[]
+  unownableBecause: (source: ModuleSource) => string | null
   repoOf: (moduleRoot: string) => string
   rel: (p: string) => string
-  root?: string
   dataPath: string
   vars: { env: Map<string, string>; workspaceFolder: string; declared: Set<string> }
   moduleId: (n: string) => string
@@ -127,13 +123,12 @@ const titleCase = (id: string): string =>
  * @param {Map<string,string[]>} ctx.moduleDeps
  * @param {Map<string,Record<string,string>>} [ctx.modulePresets]  module preset name -> { member: exact version }; a dependency on a preset reaches its members
  * @param {Map<string,string[]>} ctx.modulePeers
- * @param {Map<string,string>} ctx.channelOf                     module name -> inline | git | npm
+ * @param {Map<string,string>} ctx.channelOf                     module name -> inline | npm
  * @param {string} ctx.wsModuleName
  * @param {string} ctx.engineName
  * @param {Map<string,{root}>} ctx.dataOwners                    owns-data modules — every collection defaults to `storage.owner: module`
  * @param {Map<string,{name,root,channel}>} ctx.moduleSources   every module source, for a descriptor that names `storage.owner: module`
- * @param {(source: object, rel: Function) => string|null} ctx.unownableBecause  why a module's clone cannot hold records, or null
- * @param {{name,root,dataPath,records:string[]|null}[]} ctx.layers  record layers — clones whose data is read here; `records` narrows, null reads every collection both have
+ * @param {(source: object) => string|null} ctx.unownableBecause  why a module cannot hold records, or null
  * @param {(moduleRoot: string) => string} ctx.repoOf            workspace-relative git repo of a module root
  * @param {(p: string) => string} ctx.rel
  * @param {string} ctx.dataPath
@@ -147,7 +142,6 @@ export function compileCollections(ctx: CollectionsContext): {
   compiled: Map<string, CompiledCollection>
   inert: SourceRef[]
   moduleColls: Map<string, Set<string>>
-  layerReads: Map<string, string[]>
 } {
   const {
     groups,
@@ -165,14 +159,12 @@ export function compileCollections(ctx: CollectionsContext): {
     dataOwners,
     moduleSources,
     unownableBecause,
-    layers = [],
     repoOf,
     dataPath,
     vars,
     moduleId,
     fail,
     warn,
-    root = vars?.workspaceFolder ?? ".",
   } = ctx
 
   // What a module may reach: its dependencies and, for a dependency that is a MODULE PRESET (CR-dt-008),
@@ -200,8 +192,6 @@ export function compileCollections(ctx: CollectionsContext): {
   const typeNames = new Set([...groups.keys(), ...core])
   const allPeers = new Set([...modulePeers.values()].flat())
   const out = new Map<string, CompiledCollection>()
-  const layerClaims = new Map() // layer name -> clone folders some collection here accounts for
-  const layerReads = new Map<string, string[]>() // layer name -> clone folders some collection here READS (cr-dt-004); compiled sources never sit in a layer's data
   const inert: SourceRef[] = []
   const moduleColls = new Map()
   const owners = new Map<string, string>() // collection -> owning module name
@@ -286,7 +276,7 @@ export function compileCollections(ctx: CollectionsContext): {
     let repo = "."
     if (owner === "module" && !runtime) {
       const source = moduleSources.get(base.moduleName)
-      const why = unownableBecause(source, ctx.rel)
+      const why = unownableBecause(source)
       if (why) fail(`collection "${name}" sets storage.owner: module, but ${why} (${where})`)
       const modRel = ctx.rel(source.root)
       if (modRel) storagePath = `${modRel}/${storagePath}`
@@ -362,39 +352,6 @@ export function compileCollections(ctx: CollectionsContext): {
         `collection "${name}" is \`format: binary\` — one file per record, not a folder; drop \`shape: folder\` (${where})`
       )
     storageEntries.push({ name, path: storagePath, base: runtime ? "runtime" : "workspace" })
-    // record layers: the listed clones' data folders, read BELOW the write root
-    const collLayers = []
-    for (const l of layers) {
-      // where this collection's records would sit in the clone — claimed, so the unread-folder
-      // pass below never names a folder some collection here accounts for
-      const at = `${l.root}/${a.path && !pointed && !runtime ? a.path : defaultStoragePath(name, namespaces, l.dataPath)}`
-      ;(layerClaims.get(l.name) ?? layerClaims.set(l.name, new Set()).get(l.name)).add(at)
-      if (l.records && !l.records.includes(name)) continue
-      const why = runtime
-        ? "is a compiled source"
-        : owner === "module"
-          ? `is \`storage.owner: module\` — one shared list read from the module's clone, which a layer would duplicate`
-          : a.under
-            ? "is stored under another collection (storage.under) — a placed collection is not layered"
-            : pointed
-              ? "is env-pointed (its storage.path is a template) — its records are per machine, not a clone's"
-              : null
-      if (why && l.records) fail(`git_modules.${l.name}.records names "${name}", which ${why}`)
-      if (why) {
-        if (!runtime) l.skipsSome = true // a reader that skips one of the layer's collections never reads it completely (cr-dt-004); compiled sources never sit in a layer's data
-        // an INHERENT layer reads every collection both have, so one that cannot layer is skipped —
-        // said only when the clone actually holds records there, so a quiet compile stays quiet
-        const n = fileCount(path.join(root, at))
-        if (n)
-          warn(
-            `ℹ layer ${l.name}: ${name} is not read from the layer — it ${why} (${n} file${n === 1 ? "" : "s"} in ${at}/ unread)`
-          )
-        continue
-      }
-      collLayers.push({ name: l.name, path: at, repo: l.root })
-      ;(layerReads.get(l.name) ?? layerReads.set(l.name, []).get(l.name)).push(at)
-    }
-
     // an opaque record's fields are the ones derived from the file itself
     const fields = { ...(authored.fields ?? {}) }
     if (format === "binary") {
@@ -418,8 +375,6 @@ export function compileCollections(ctx: CollectionsContext): {
       warnings,
       defaults: fieldDefaults,
     } = resolveFields(fields, { name, collections: typeNames, peers: allPeers, runtime })
-    // a collection a reader can read from a layer: what `check` counts a referrer by (cr-dt-004); compiled sources never sit in a layer's data
-    const layerable = !runtime && owner !== "module" && !a.under && !pointed
     if (errors.length) fail(`collection "${name}" (${where}):\n  ${errors.join("\n  ")}`)
     for (const w of warnings) warn(`⚠ collection ${name}: ${w}`)
     const constraints = authored.constraints ?? []
@@ -547,8 +502,6 @@ export function compileCollections(ctx: CollectionsContext): {
         unresolved_peers: unresolved,
         fields: resolved,
         json_schema: jsonSchema,
-        ...(collLayers.length ? { layers: collLayers } : {}),
-        ...(layerable ? { layerable: true } : {}),
         ...(external ? { external: true } : {}),
         ...(unavailable ? { unavailable } : {}),
       },
@@ -557,22 +510,6 @@ export function compileCollections(ctx: CollectionsContext): {
   }
 
   for (const p of storageOverlaps(storageEntries)) fail(p)
-  for (const l of layers) {
-    for (const c of l.records ?? [])
-      if (!staged.has(c))
-        fail(
-          `git_modules.${l.name}.records names "${c}", which is not a collection here (have: ${[...staged.keys()].sort().join(", ")})`
-        )
-  }
-  // A layer folder no collection here accounts for — the project's own domain collections, read by a
-  // workspace that does not install their module — is WARNED, never failed: reading a project without
-  // its domain module is legitimate, but its records silently not appearing is not.
-  for (const l of layers)
-    for (const [folder, n] of unreadFolders(root, `${l.root}/${l.dataPath}`, layerClaims.get(l.name) ?? new Set())) {
-      warn(
-        `⚠ layer ${l.name}: ${folder}/ holds ${n} file${n === 1 ? "" : "s"} and no collection here reads it — install the module that defines it to read them${l.records ? "" : ", or list the collections to read in git_modules." + l.name + ".records"}`
-      )
-    }
   {
     const words = new Map()
     for (const { name } of wordEntries) words.set(name, name)
@@ -591,7 +528,7 @@ export function compileCollections(ctx: CollectionsContext): {
   placement(out, fail)
 
   for (const [, c] of out) c.doc = { ...c.doc, compiled: c.compiled }
-  return { compiled: out, inert, moduleColls, layerReads }
+  return { compiled: out, inert, moduleColls }
 }
 
 /**
@@ -714,38 +651,4 @@ function placement(out: Map<string, CompiledCollection>, fail: (msg: string) => 
     }
     c.compiled.under_collection = parentName
   }
-}
-
-/** How many files sit under a folder, recursively — 0 when it is absent. */
-function fileCount(dir: string): number {
-  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return 0
-  let n = 0
-  for (const _ of walk(dir)) n++
-  return n
-}
-
-/**
- * `[folder, fileCount]` for each folder under a layer's data path that no claimed path accounts for:
- * a claimed folder is skipped, one that is a PREFIX of a claimed path (a namespace folder) is
- * descended into, anything else is unread. Paths are workspace-relative, `/`-joined.
- */
-function unreadFolders(root: string, dataDir: string, claimed: Set<string>): [folder: string, files: number][] {
-  const out: [string, number][] = []
-  const visit = (rel: string): void => {
-    const abs = path.join(root, rel)
-    if (!fs.existsSync(abs)) return
-    for (const e of fs.readdirSync(abs, { withFileTypes: true }).sort((x, y) => x.name.localeCompare(y.name))) {
-      if (!e.isDirectory() || e.name.startsWith(".")) continue
-      const p = `${rel}/${e.name}`
-      if (claimed.has(p)) continue
-      if ([...claimed].some(c => c.startsWith(`${p}/`))) {
-        visit(p)
-        continue
-      }
-      const n = fileCount(path.join(root, p))
-      if (n) out.push([p, n])
-    }
-  }
-  visit(dataDir)
-  return out
 }

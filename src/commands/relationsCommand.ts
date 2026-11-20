@@ -7,7 +7,6 @@ import { bodyField } from "../record/bodyField.ts"
 import { fieldsOf } from "../record/descriptor.ts"
 import { emit } from "../lib/emit.ts"
 import { expectedMirrors } from "../record/expectedMirrors.ts"
-import { ownersReadIn } from "../record/ownersReadIn.ts"
 import { parseRecord } from "../record/records.ts"
 import { serialize } from "../record/serialize.ts"
 import { storageOf } from "../record/storageOf.ts"
@@ -91,8 +90,8 @@ function relationsRebuild(store: Store, flags: Flags, pos: string[]) {
   // store's own `applyMirrorEdits` re-walks the owners per write, which is right for one edit and
   // quadratic for a whole collection — so rebuild does not build on it.
   const unreadableOwners: string[] = []
-  // PER REPO, like check.js and the store: an owner in another repo (a record layer, or this
-  // workspace against a module-owned target) implies no mirror on a target it cannot be committed with
+  // PER REPO, like check.js and the store: an owner in another repo (this workspace against a
+  // module-owned target) implies no mirror on a target it cannot be committed with
   const perRepo = (r: Relation) => {
     const groups = new Map<string, { id: string; fields: Fields }[]>()
     for (const o of parseEach(store, r.owner, f => unreadableOwners.push(rel(store.root, f)))) {
@@ -125,9 +124,6 @@ function relationsRebuild(store: Store, flags: Flags, pos: string[]) {
       let changed = false
       const repo = store.repoOfFile(d, file)
       for (const { r, exp } of expected) {
-        // a layer's mirror justified by owners this workspace does not read from that layer is
-        // left exactly as the layer wrote it — rebuilding it from here deleted it (ownersReadIn)
-        if (store.layerOfFile(d, file) && !ownersReadIn(store.descriptor(r.owner), repo)) continue
         const want = exp.get(repo)?.get(id)
         const have = fields[r.mirror]
         // ⚠ COERCE THE WAY AJV DOES. `check` validates with `coerceTypes: 'array'`, which mutates

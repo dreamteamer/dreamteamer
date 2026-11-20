@@ -39,7 +39,7 @@ fields:
   location:
     type: string
     required: true
-    enum: [modules, git_modules, node_modules, root]
+    enum: [modules, node_modules, root]
     passthrough: true
     description: >-
       Where this module's sources sit — the folder name, so `dt status` needs no legend. `root` is the

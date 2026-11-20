@@ -56,7 +56,7 @@ import { writeLockPath } from "./writeLockPath.ts"
 import { withWriteLock } from "./withWriteLock.ts"
 import { commit } from "./lib/commit.ts"
 import { commitIn } from "./lib/commitIn.ts"
-import type { ResolvedRoot, RewriteResult, RelocatePlan, Undo } from "./types.ts"
+import type { RewriteResult, RelocatePlan, Undo } from "./types.ts"
 import { escapeRe } from "../lib/escapeRe.ts"
 import { pruneEmptyDirs } from "./lib/pruneEmptyDirs.ts"
 export class Store {
@@ -229,30 +229,7 @@ export class Store {
    * it is stored under one. What `commit` scopes `git status` to and what a surface asks git about.
    */
   recordDirs(d: Descriptor): string[] {
-    const own = placementOf(d) ? [this.dir(d), this.parentDir(d)] : [this.dir(d)]
-    return [
-      ...own,
-      ...this.rootsOf(d)
-        .slice(1)
-        .map(r => r.abs),
-    ]
-  }
-
-  /**
-   * Every root a record of `d` can be READ from, write root first, then each record layer — another
-   * workspace cloned under git_modules/ whose manifest entry lists this collection.
-   */
-  rootsOf(d: Descriptor): ResolvedRoot[] {
-    this.rootPath(d) // the refusal, before any root is resolved
-    return storageOf(d).roots.map(r => ({
-      ...r,
-      abs: path.resolve(storageOf(d).runtime ? this.runtime : this.root, r.path),
-    }))
-  }
-
-  /** Does a record layer contribute to `d`? Such a collection is indexed across every root. */
-  layered(d: Descriptor): boolean {
-    return storageOf(d).layers.length > 0
+    return placementOf(d) ? [this.dir(d), this.parentDir(d)] : [this.dir(d)]
   }
 
   /**
@@ -268,28 +245,15 @@ export class Store {
     return null
   }
 
-  /**
-   * The layer an existing file of `d` was read from — `{ layer, path, repo, abs }` — or null for a
-   * file in the write root. What decides which repo an edit of it commits to.
-   */
-  layerOfFile(d: Descriptor, file: string): ResolvedRoot | null {
-    const abs = path.resolve(file)
-    return (
-      this.rootsOf(d)
-        .slice(1)
-        .find(r => abs.startsWith(path.resolve(r.abs) + path.sep)) ?? null
-    )
-  }
-
-  /** The git repo that owns a file of `d`, workspace-relative: a layer's when a layer holds it. */
-  repoOfFile(d: Descriptor, file: string): string {
-    return this.layerOfFile(d, file)?.repo ?? storageOf(d).repo
+  /** The git repo that owns a file of `d`, workspace-relative. */
+  repoOfFile(d: Descriptor, _file: string): string {
+    return storageOf(d).repo
   }
 
   /**
    * WHERE a record is read from, and which repo commits it — what `dt get --json` and `dt list
    * --json` say as `$file` and `$repo`. `file` is workspace-relative, `repo` the workspace-relative
-   * repo root (`.`, `git_modules/<clone>`); a collection kept outside every repo here (an
+   * repo root (`.`, or a module's own clone); a collection kept outside every repo here (an
    * env-pointed root) answers its absolute file and `repo: null` — it is never committed.
    */
   locate(collection: string, id: string): { file: string; repo: string | null } {
@@ -484,29 +448,20 @@ export class Store {
   }
 
   /**
-   * An id no root here holds that an exports manifest vouches for (cr-dt-004): `{ label, from?, manifest }`,
-   * or null. The manifest is the referring record's repo's — `referrer` (`<collection>/<id>`), else this
-   * workspace's — and it answers only where its holder is not read here: exactly where `check` says
-   * external. A referrer this workspace does not read is refused, naming it.
+   * An id no record here holds that this workspace's exports manifest vouches for (cr-dt-004):
+   * `{ label, from?, manifest }`, or null. It answers only where its holder is not read here: exactly
+   * where `check` says external.
    */
-  external(
-    collection: string,
-    id: string,
-    opts?: { referrer?: string }
-  ): { label: string; from?: string; manifest: string } | null {
-    return external(this, collection, id, opts)
+  external(collection: string, id: string): { label: string; from?: string; manifest: string } | null {
+    return external(this, collection, id)
   }
 
   /**
-   * The entry the exports manifest of `repo` (a layer name; null: the write root) holds for an id, with
-   * `seen` when its holder is read here — or null. The one reading `external` and `checkRefs` share.
+   * The entry this workspace's exports manifest holds for an id, with `seen` when its holder is read
+   * here — or null. The one reading `external` and `checkRefs` share.
    */
-  vouched(
-    collection: string,
-    id: string,
-    repo: string | null = null
-  ): { label: string; from?: string; manifest: string; seen: boolean } | null {
-    return vouched(this, collection, id, repo)
+  vouched(collection: string, id: string): { label: string; from?: string; manifest: string; seen: boolean } | null {
+    return vouched(this, collection, id)
   }
 
   read(collection: string, id: string): { fields: Fields; file: string } {
@@ -606,7 +561,7 @@ export class Store {
     return relocate(this, collection, opts)
   }
 
-  validate(d: Descriptor, fields: Fields, opts?: { skipRefs?: boolean; repo?: string | null }): Fields {
+  validate(d: Descriptor, fields: Fields, opts?: { skipRefs?: boolean }): Fields {
     return validate(this, d, fields, opts)
   }
 
@@ -629,9 +584,8 @@ export class Store {
     return qualifyBareRefs(this, d, fields)
   }
 
-  /** `repo` is the referring record's: the layer that holds it, null for the write root. */
-  checkRefs(d: Descriptor, fields: Fields, repo: string | null = null): void {
-    return checkRefs(this, d, fields, repo)
+  checkRefs(d: Descriptor, fields: Fields): void {
+    return checkRefs(this, d, fields)
   }
 
   add(
@@ -762,8 +716,7 @@ export class Store {
   }
 
   /**
-   * every compiled module (review finding 10: this layer never learned decision 24 — rename
-   * silently skipped git_modules sources), read off the manifest rather than by re-discovering
+   * every compiled module, read off the manifest rather than by re-discovering
    * modules, which is what used to make the store import the compiler. See runtime.js.
    */
   sourceRoots() {

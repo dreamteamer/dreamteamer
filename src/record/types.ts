@@ -5,19 +5,15 @@ export interface ExportEntry {
   from?: string
 }
 
-/** A collection root as one context sees it: its layer (null: the write root), its package, whether it is on disk. */
-export interface ContextRoot {
-  layer: string | null
-  package: string | null
-  present: boolean
-}
-
 export interface ExportsContext {
+  /** this workspace's package name */
   own: string | null
-  rootsOf: (coll: string) => ContextRoot[]
-  complete: (layer: string | null) => boolean
-  packageOf: (layer: string | null) => string | null
-  rootOf: (layer: string | null) => string
+  /** this workspace's root — where its exports manifest sits */
+  root: string
+  /** does this workspace have the collection */
+  reads: (coll: string) => boolean
+  /** is every record under the data folder read by some collection here */
+  complete: () => boolean
 }
 
 export interface OutsideRef {

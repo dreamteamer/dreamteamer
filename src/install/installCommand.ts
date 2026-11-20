@@ -1,5 +1,4 @@
 import { installCheckout } from "./installCheckout.ts"
-import { installClone } from "./installClone.ts"
 import { installModules } from "./installModules.ts"
 import type { Workspace } from "../types.ts"
 import { warnIfStale } from "../compile/warnIfStale.ts"
@@ -43,11 +42,6 @@ export async function installCommand(
     throw new Error(
       `${stray.join(" ")} ${stray.length > 1 ? "are not flags" : "is not a flag"} of \`${form}\` — that form takes ${allowed.join(" ")}`
     )
-  }
-  const ci = rest.indexOf("--clone")
-  if (ci > -1) {
-    refuse("dt install --clone <url> [name]", ["--clone"])
-    return installClone(ws, rest[ci + 1], rest[ci + 2])
   }
   const target = rest.find(a => !a.startsWith("--"))
   if (target === "repos" || target?.startsWith("repos/")) {

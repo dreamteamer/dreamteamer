@@ -1,30 +1,16 @@
-# Attached repos (`repos`) vs git modules (`git_modules`)
+# Attached repos (`repos`) vs modules
 
 Two different lifecycles, deliberately two different homes. This trips people up, so the reasoning is
 worth writing down once.
 
-## Git modules are config, and they have to be
+## Modules are config, and they have to be
 
-A git module — a clone under `git_modules/`, whether it ships modules or is read as a record layer — is
-declared in the workspace's `package.json` under `dreamteamer.git_modules` and restored by `dt install`
-(`dt` is `npx dreamteamer`). A module published to npm is config too, for the same reason: `dt install
-<package>` pins it in `package.json`.
+A module is either a folder under `modules/<id>/`, committed with the workspace, or a package `dt install
+<spec>` pins in `package.json` (`dt` is `npx dreamteamer`; a spec may be a git URL).
 
 They MUST live in config rather than in records, because of a genuine bootstrap ordering problem: a
 fresh clone has no `.dreamteamer/`, therefore no compiled schemas, therefore no readable records — so
-module clones have to be restorable *before* anything can be read.
-
-```bash
-dt install                          # make the checkout ready: restores git_modules/ from the lockfile map, compiles
-dt install --clone <url> [name]     # add one
-dt update                           # pull clones forward (ff-only on the lockfile ref)
-```
-
-What a clone NEEDS is installed from here too (0.46.0), the npm way: the entries of its `git_modules`
-that provide a holder its committed `dreamteamer-exports.json` names — its dependencies, never the rest of
-its list — each cloned once at the top-level `git_modules/<name>` and linked under the clone, so a project
-attached as a record layer need not be redeclared by every workspace that reads it. Your declaration
-overrides a clone's; a disagreement between clones nests a second copy; nothing is refused.
+modules have to be installable *before* anything can be read.
 
 ## Attached repos are data
 

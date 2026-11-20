@@ -101,7 +101,7 @@ export async function npmAndCompile(
   try {
     let fresh: Workspace
     if (childCompile) {
-      // --workspace pins the root: a layer under git_modules/ would otherwise be climbed out of to the reader
+      // --workspace pins the root
       const c = spawnSync(process.execPath, [BIN, "--workspace", ws.root, "compile"], {
         cwd: ws.root,
         stdio: json ? ["ignore", 2, 2] : "inherit",

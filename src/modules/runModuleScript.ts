@@ -13,8 +13,7 @@ const USAGE_LINE = "dt run <module> [<script> [<arg>…]] — the module by pack
  * `dist/`, where a TypeScript module's code has to live — without shipping a shim at every old path.
  *
  * The module resolves through `discoverModules`, the layering extensions load through: `modules/<id>`,
- * then a `git_modules/` clone, then the installed package, so a dev clone shadows what npm installed
- * and a disabled module is not there at all. The script runs on this node (`process.execPath`), at the
+ * then the installed package, so an inline copy shadows what npm installed and a disabled module is not there at all. The script runs on this node (`process.execPath`), at the
  * workspace root, with the terminal; its exit code is returned and a signal that killed it kills this
  * process too. `argv[1]` is the script's REAL path, so a script's "am I the entry point" guard — its
  * own realpath against argv[1]'s — holds through the node_modules symlink a `./folder` install makes.

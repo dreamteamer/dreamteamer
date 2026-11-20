@@ -55,7 +55,7 @@ export function add(
   // `check` would report, and refusing it here is what keeps the id unique across every root.
   const file = store.filePath(d, id, undefined, fields)
   store._assertContained(d, file)
-  if (fs.existsSync(file) || ((placementOf(d) || store.layered(d)) && store.ids(collection).has(id)))
+  if (fs.existsSync(file) || (placementOf(d) && store.ids(collection).has(id)))
     throw new Error(`${collection}/${id} already exists — nothing was written.`)
   return store.withWriteLock(() => {
     // captured before the invalidation and handed back, one entry richer, on the success path

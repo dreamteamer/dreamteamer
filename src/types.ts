@@ -114,14 +114,12 @@ export interface Descriptor extends AuthoredDescriptor {
     repo: string
     runtime: boolean
     under_collection?: string
-    /** the record layers this collection is read from, and an env-pointed root's facts (see Storage) */
-    layers?: { name: string; path: string; repo: string }[]
+    /** an env-pointed root's facts (see Storage) */
     external?: boolean
     unavailable?: string | null
     mirrors: string[]
     overlaid_by: string[]
     unresolved_peers: string[]
-    layerable?: boolean
     fields: Record<string, Field>
     json_schema: Record<string, unknown>
   }
@@ -137,9 +135,6 @@ export interface Storage {
   /** the root is outside the workspace (an env-pointed path) · why it could not render, else null */
   external: boolean
   unavailable: string | null
-  /** the record layers read beside the write root, and every root in read order (write root first) */
-  layers: { name: string; path: string; repo: string }[]
-  roots: { path: string; repo: string; layer?: string }[]
   entry?: string
   max_bytes?: number
   accept?: string[]
@@ -160,10 +155,9 @@ export interface Manifest {
   extensions?: { name: string; version: string }[]
   "source-kinds"?: { kind: string; exclude: string[]; extension: string }[]
   entries: Record<string, { sources: { path: string; hash: string }[]; hash: string }>
-  /** the workspace's package name, its data folder, and the record layers it reads — what `exportsFacts` answers from */
+  /** the workspace's package name and its data folder — what `exportsFacts` answers from */
   package?: string | null
   data_path?: string
-  layers?: { name: string; root: string; data: string; package: string | null; reads: string[]; narrowed: boolean }[]
   /** sources compiled to nothing (and why a module was refused), so staleness still sees them change */
   inert?: { path: string; hash: string }[]
   refused?: { name: string; engine: string }[]
@@ -293,15 +287,6 @@ export interface DistinctValues {
   skipped?: "body" | "object"
 }
 
-/** One `dreamteamer.git_modules` entry: a clone the workspace declares (`records` makes it a record layer) */
-export interface GitModuleEntry {
-  url?: string
-  ref?: string
-  records?: string[] | null
-  module?: boolean
-  [k: string]: unknown
-}
-
 /** The `dreamteamer` block of a workspace's or a module's package.json — the keys the engine reads (MANIFEST_KEYS) */
 export interface DreamteamerBlock {
   title?: string
@@ -313,7 +298,6 @@ export interface DreamteamerBlock {
   env?: string[]
   auto_commit?: boolean
   harnesses?: string[]
-  git_modules?: Record<string, GitModuleEntry>
   disable?: string[]
   local_assets?: string[]
   postinstall?: string | null
@@ -523,7 +507,7 @@ export interface CompileDraft {
   readonly entries: Map<string, Entry>
   /** the FINAL merged descriptors */
   readonly descriptors: Descriptors
-  readonly modules: { id: string; name: string; root: string; channel: "inline" | "git" | "npm" }[]
+  readonly modules: { id: string; name: string; root: string; channel: "inline" | "npm" }[]
   /** names only — never values */
   readonly declaredVars: string[]
   readonly declaredEnv: string[]

@@ -5,7 +5,7 @@ import fs from "node:fs"
 import { isStale } from "./isStale.ts"
 import { symlinkedChildRoots } from "./symlinkedChildRoots.ts"
 import { collectRefFields } from "../record/collectRefFields.ts"
-import { bodyFieldOf, fieldsOf, idsOf, jsonSchemaOf, recordTitleOf, unresolvedPeersOf } from "../record/descriptor.ts"
+import { bodyFieldOf, fieldsOf, idsOf, jsonSchemaOf, unresolvedPeersOf } from "../record/descriptor.ts"
 import { expectedMirrors } from "../record/expectedMirrors.ts"
 import { sees } from "../record/sees.ts"
 import { valuesAt } from "../record/valuesAt.ts"
@@ -14,7 +14,6 @@ import { exportsContext } from "../record/exportsContext.ts"
 import { idFromRecordPath } from "../record/idFromRecordPath.ts"
 import { outsideRefs } from "../record/outsideRefs.ts"
 import { ownerIdOf } from "../record/ownerIdOf.ts"
-import { ownersReadIn } from "../record/ownersReadIn.ts"
 import { parseRef } from "../record/parseRef.ts"
 import { placedRecords } from "../record/placedRecords.ts"
 import { placementOf } from "../record/placement.ts"
@@ -24,7 +23,7 @@ import { MAX_RECORD_BYTES } from "../record/consts.ts"
 import { regenerate } from "../record/regenerate.ts"
 import { relationsOf } from "../record/relationsOf.ts"
 import { storageOf } from "../record/storageOf.ts"
-import type { Relation } from "../record/types.ts"
+import type { ExportRefs, Relation } from "../record/types.ts"
 import { walk } from "../lib/walk.ts"
 import { exportsFacts } from "../runtime/exportsFacts.ts"
 import { loadDescriptors } from "../runtime/loadDescriptors.ts"
@@ -71,35 +70,31 @@ export function check(
   const strays = []
   // declared here rather than beside the validation pass: indexing can itself produce a
   // finding (an unreachable data root, below) before a single record is read.
-  const violations: { file: string; msg: string; layer?: string }[] = []
+  const violations: { file: string; msg: string }[] = []
   const dirOf = (d: Descriptor): string => path.resolve(storageOf(d).runtime ? RUNTIME : root, storageOf(d).path) // resolve: an env-pointed root is absolute
-  // per indexed file: the repo that holds it (mirrors are expected per repo) and the record layer it
-  // came from, if any (its findings are reported under the layer, not as this workspace's data)
+  // per indexed file: the repo that holds it (mirrors are expected per repo)
   const fileRepo = new Map<string, string>()
-  const fileLayer = new Map<string, string>()
-  const layerNotes = new Map() // layer name -> note, printed once
+  const notes = new Map() // key -> note, printed once
   for (const [name, d] of descriptors) {
     const ids = new Map()
     index.set(name, ids)
-    const claim = (id: string, f: string, repo: string, layer?: string): boolean => {
+    const claim = (id: string, f: string, repo: string): boolean => {
       if (ids.has(id)) {
         violations.push({
           file: rel(f),
-          layer,
           msg: `collection "${name}" holds the id "${id}" twice — ${rel(ids.get(id))} and ${rel(f)}. Remove one.`,
         })
         return false
       }
       ids.set(id, f)
       fileRepo.set(f, repo)
-      if (layer) fileLayer.set(f, layer)
       return true
     }
     // An env-pointed root this machine cannot render is the normal state of a per-machine
-    // collection elsewhere — said once, like an absent layer, and not read: a literal `${env:…}`
+    // collection elsewhere — said once, and not read: a literal `${env:…}`
     // folder is never looked at, and a reference into the collection is not a finding here.
     if (storageOf(d).unavailable) {
-      layerNotes.set(
+      notes.set(
         `collection:${name}`,
         `⚠ collection ${name}: ${storageOf(d).unavailable} — its records are not read on this machine, and references into it are not checked`
       )
@@ -149,75 +144,59 @@ export function check(
       }
       continue
     }
-    // every root: the write root, then each record layer. Claimants are GATHERED first, in root order:
-    // the first answers, exactly as the store indexes, and every other is the duplicate reported above.
-    const offers = new Map() // id -> [{ f, repo, layer }], root order
-    const offer = (id: string, f: string, repo: string, layer: string | undefined): void => {
+    // Claimants are GATHERED first: the first answers, exactly as the store indexes, and every other is
+    // the duplicate reported above.
+    const offers = new Map<string, string[]>() // id -> files, walk order
+    const offer = (id: string, f: string): void => {
       const o = offers.get(id)
-      if (o) o.push({ f, repo, layer })
-      else offers.set(id, [{ f, repo, layer }])
+      if (o) o.push(f)
+      else offers.set(id, [f])
     }
-    for (const r of storageOf(d).roots) {
-      const rootDir = r.layer ? path.join(root, r.path) : dir
-      if (!fs.existsSync(rootDir)) {
-        // a layer whose CLONE is absent is a fresh checkout before `dreamteamer install` — its records
-        // are unread, and that is said once rather than passed off as an empty layer
-        if (r.layer && !fs.existsSync(path.join(root, r.repo)))
-          layerNotes.set(
-            r.layer,
-            `⚠ layer ${r.layer} (${r.repo}) is not installed — its records are not read; run dreamteamer install`
-          )
-        continue
-      }
-      const shape = storageOf(d).shape ?? "file"
-      if (shape === "folder") {
-        // a FILE record at the root of a folder-shape collection is the state a collection is in
-        // right after its shape changed — named as such, with the verb that finishes the change
-        const asFile = { ...d, storage: { ...d.storage, shape: "file" as const } }
-        for (const entry of fs.readdirSync(rootDir).sort()) {
-          if (entry.startsWith(".")) continue
-          const p = path.join(rootDir, entry)
-          if (!fs.statSync(p).isDirectory()) {
-            const legacy = idFromRecordPath(asFile, entry) !== null
-            strays.push({
-              collection: name,
-              file: rel(p),
-              note: legacy
-                ? `a file-shape record in a folder-shape collection — dreamteamer relocate ${name} moves it to ${entry.split(".")[0]}/${storageOf(d).entry}`
-                : undefined,
-            })
-            continue
-          }
-          const main = path.join(p, storageOf(d).entry ?? "SKILL.md")
-          if (fs.existsSync(main)) offer(entry, main, r.repo, r.layer)
-          else strays.push({ collection: name, file: rel(p), note: `missing entry file ${storageOf(d).entry}` })
+    const shape = storageOf(d).shape ?? "file"
+    if (fs.existsSync(dir) && shape === "folder") {
+      // a FILE record at the root of a folder-shape collection is the state a collection is in
+      // right after its shape changed — named as such, with the verb that finishes the change
+      const asFile = { ...d, storage: { ...d.storage, shape: "file" as const } }
+      for (const entry of fs.readdirSync(dir).sort()) {
+        if (entry.startsWith(".")) continue
+        const p = path.join(dir, entry)
+        if (!fs.statSync(p).isDirectory()) {
+          const legacy = idFromRecordPath(asFile, entry) !== null
+          strays.push({
+            collection: name,
+            file: rel(p),
+            note: legacy
+              ? `a file-shape record in a folder-shape collection — dreamteamer relocate ${name} moves it to ${entry.split(".")[0]}/${storageOf(d).entry}`
+              : undefined,
+          })
+          continue
         }
-        continue
+        const main = path.join(p, storageOf(d).entry ?? "SKILL.md")
+        if (fs.existsSync(main)) offer(entry, main)
+        else strays.push({ collection: name, file: rel(p), note: `missing entry file ${storageOf(d).entry}` })
       }
-      for (const f of walk(rootDir)) {
-        const id = idFromRecordPath(d, path.relative(rootDir, f))
+    } else if (fs.existsSync(dir)) {
+      for (const f of walk(dir)) {
+        const id = idFromRecordPath(d, path.relative(dir, f))
         if (id === null) {
           strays.push({ collection: name, file: rel(f) })
           continue
         }
-        // One id is one file. Under a fixed-extension format this cannot happen within one root;
-        // under `binary` it can, and across roots it is a layer and this workspace disagreeing.
-        offer(id, f, r.repo, r.layer)
+        // One id is one file. Under a fixed-extension format this cannot happen; under `binary` it can.
+        offer(id, f)
       }
     }
     const opaque = storageOf(d).format === "binary"
     const allowed = storageOf(d).accept // undefined = any
     const max = storageOf(d).max_bytes ?? MAX_RECORD_BYTES
     for (const [id, list] of offers) {
-      const [winner] = list
-      for (const c of list) claim(id, c.f, c.repo, c.layer) // the second and later are reported as duplicates
+      const [f] = list
+      for (const c of list) claim(id, c, storageOf(d).repo) // the second and later are reported as duplicates
       if (!opaque) continue
-      const f = winner.f
       const ext = path.extname(f).slice(1).toLowerCase()
       if (allowed && !allowed.includes(ext)) {
         violations.push({
           file: rel(f),
-          layer: winner.layer,
           msg: `collection "${name}" does not accept .${ext} — its declared extensions are ${allowed.join(", ")}`,
         })
       }
@@ -225,7 +204,6 @@ export function check(
       if (size > max) {
         violations.push({
           file: rel(f),
-          layer: winner.layer,
           msg: `is ${size} bytes, over collection "${name}"'s max_bytes of ${max} — a record is a small file; a big one belongs outside the vault`,
         })
       }
@@ -233,35 +211,22 @@ export function check(
   }
 
   const flag = (file: string, msg: string): void => {
-    violations.push({ file: rel(file), layer: fileLayer.get(file), msg })
+    violations.push({ file: rel(file), msg })
   }
 
   // parsed fields, kept for the relations pass below (parse each record exactly once)
   const parsed = new Map()
-  // cr-dt-003: what a reader of this workspace (without its layers) would see break — a target only a
-  // layer answers
-  const layerOnly = new Map<
-    string,
-    { layer: string; binary: boolean; refs: { file: string; field: string; value: string; referrer: string }[] }
-  >() // target -> { layer, binary, refs: [{ file, field, value, referrer }] }
   const softRefs = new Map() // absent-but-declared peer collection -> how many refs point at it
-  // cr-dt-004: each repo's exports manifest (the write root is `null`), and the references it vouches for
+  // cr-dt-004: this workspace's exports manifest, and the references it vouches for
   const facts = exportsFacts(root)
-  const ctx = exportsContext({ root, descriptors, own: facts.own, layers: facts.layers, dataPath: facts.data })
-  const manifests = new Map()
-  for (const repo of [null, ...(facts.layers ?? []).map(l => l.name)]) {
-    try {
-      const m = readExports(ctx.rootOf(repo))
-      if (m) manifests.set(repo, m)
-    } catch (e) {
-      violations.push({
-        file: rel(path.join(ctx.rootOf(repo), EXPORTS_FILE)),
-        layer: repo ?? undefined,
-        msg: e.message,
-      })
-    }
+  const ctx = exportsContext({ root, descriptors, own: facts.own, dataPath: facts.data })
+  let manifest: ExportRefs | null = null
+  try {
+    manifest = readExports(root)
+  } catch (e) {
+    violations.push({ file: rel(path.join(root, EXPORTS_FILE)), msg: e.message })
   }
-  const external = new Map() // repo -> { refs, targets: Set }
+  const external = { refs: 0, targets: new Set<string>() }
 
   for (const [name, d] of descriptors) {
     const validate = ajv.compile(jsonSchemaOf(d))
@@ -270,8 +235,6 @@ export function check(
     const bodyField = bodyFieldOf(d)
     parsed.set(name, new Map())
 
-    // only a referrer a reader can read counts: its collection can be layered at all (D11)
-    const exportable = (d.compiled as { layerable?: boolean })?.layerable === true
     for (const [id, file] of index.get(name)) {
       if (idsOf(d).pattern && !patternRe(idsOf(d).pattern).test(id)) {
         flag(file, `id "${id}" does not match pattern ${idsOf(d).pattern}`)
@@ -290,23 +253,8 @@ export function check(
         flag(file, `unknown field "${k}" (not in the ${name} schema)`)
       }
       for (const [fieldPath, target, soft] of refFields) {
-        // a layer's MIRROR whose owners this workspace does not read from that layer names
-        // records of the layer's repo — not dangling, only out of sight (see ownersReadIn)
-        if (
-          fileLayer.has(file) &&
-          fieldPath.length === 1 &&
-          fieldsOf(d)[fieldPath[0]]?.mirror_of !== undefined &&
-          Array.isArray(target) &&
-          descriptors.has(target[0]) &&
-          !ownersReadIn(descriptors.get(target[0]), fileRepo.get(file))
-        )
-          continue
-        const counted =
-          exportable &&
-          !fileLayer.has(file) &&
-          !(fieldPath.length === 1 && fieldsOf(d)[fieldPath[0]]?.mirror_of !== undefined)
         for (const value of valuesAt(fields, fieldPath)) {
-          checkRef(file, fieldPath, value, target, softTargets, soft, counted ? `${name}/${id}` : null)
+          checkRef(file, fieldPath, value, target, softTargets, soft)
         }
       }
       // placement: the FIELD is the intended owner, the FOLDER is observed placement
@@ -366,8 +314,7 @@ export function check(
       repo: fileRepo.get(index.get(relation.owner).get(id)),
     }))
     // PER REPO: a mirror is kept only between records of one repo (store.js applyMirrorEdits), so
-    // the expectation on a target is computed from the owners in ITS repo — an owner in this
-    // workspace naming a target a layer holds is not a link the layer's own check could see.
+    // the expectation on a target is computed from the owners in ITS repo.
     const byRepo = new Map()
     for (const o of owners) {
       if (!byRepo.has(o.repo)) byRepo.set(o.repo, [])
@@ -394,10 +341,7 @@ export function check(
       }
     }
 
-    const ownerD = descriptors.get(relation.owner)
     for (const [id, fields] of parsed.get(relation.target) ?? []) {
-      const tfile = index.get(relation.target).get(id)
-      if (fileLayer.has(tfile) && !ownersReadIn(ownerD, fileRepo.get(tfile))) continue // the layer's own check judges it
       const expected = expByRepo.get(fileRepo.get(index.get(relation.target).get(id)))?.get(id)
       if (!sameMirror(relation, fields?.[relation.mirror], expected))
         flag(
@@ -413,8 +357,7 @@ export function check(
     value: unknown,
     targets: "*" | string[],
     softTargets: Set<string> | null,
-    soft = false,
-    referrer: string | null = null
+    soft = false
   ): void {
     if (typeof value !== "string") return
     if (value.startsWith("@")) return // runtime tokens (@me, @initiator) are legal
@@ -443,13 +386,11 @@ export function check(
     if (!index.get(coll).has(id)) {
       if (soft) return // resolve if present, ignore if absent
       if (storageOf(descriptors.get(coll)).unavailable) return // the collection is unread here, not empty
-      // listed by the referring record's OWN repo, its holder not read here: external (cr-dt-004)
-      const repo = fileLayer.get(file) ?? null
-      const e = manifests.get(repo)?.[coll]?.[id]
+      // listed by this workspace's exports manifest, its holder not read here: external (cr-dt-004)
+      const e = manifest?.[coll]?.[id]
       if (e && !sees(e, coll, ctx)) {
-        const x = external.get(repo) ?? external.set(repo, { refs: 0, targets: new Set() }).get(repo)
-        x.refs++
-        x.targets.add(`${coll}/${id}`)
+        external.refs++
+        external.targets.add(`${coll}/${id}`)
         return
       }
       return flag(
@@ -457,16 +398,6 @@ export function check(
         `${fieldPath.join(".")}: dangling reference "${value}" — no such record${e ? ` (its holder ${e.from} is read here and does not have it)` : ""}`
       )
     }
-    const at = index.get(coll).get(id)
-    if (!referrer || soft || !fileLayer.has(at) || manifests.get(null)?.[coll]?.[id]) return
-    const key = `${coll}/${id}`
-    if (!layerOnly.has(key))
-      layerOnly.set(key, {
-        layer: fileLayer.get(at),
-        binary: storageOf(descriptors.get(coll)).format === "binary",
-        refs: [],
-      })
-    layerOnly.get(key).refs.push({ file, field: fieldPath.join("."), value, referrer })
   }
 
   // an extension's warning is printed and never counted: a disagreement worth seeing that must not turn
@@ -475,51 +406,27 @@ export function check(
   for (const s of strays) {
     console.log(`⚠ ${s.file} — unrecognized file in ${s.collection} folder${s.note ? ` (${s.note})` : ""}`)
   }
-  for (const note of layerNotes.values()) console.log(note)
+  for (const note of notes.values()) console.log(note)
   const upTo3 = (xs: string[]): string =>
     (xs.length > 3 ? [...xs.slice(0, 3), `+${xs.length - 3} more`] : xs).join(", ")
-  for (const [repo, { refs, targets }] of external) {
+  if (external.refs)
     console.log(
-      `ℹ ${repo ? `layer ${repo}: ` : ""}${refs} reference${refs === 1 ? "" : "s"} to ${targets.size} record${targets.size === 1 ? "" : "s"} outside ${repo ? "it" : "this workspace"}, vouched for by its exports manifest (${upTo3([...targets].sort())})`
+      `ℹ ${external.refs} reference${external.refs === 1 ? "" : "s"} to ${external.targets.size} record${external.targets.size === 1 ? "" : "s"} outside this workspace, vouched for by its exports manifest (${upTo3([...external.targets].sort())})`
     )
-  }
   // a manifest is stale exactly when `dt exports` here would change or drop one of its entries
-  for (const [repo, current] of manifests) {
-    const repoOf = (c: string, id: string): string | null | undefined => {
-      const f = index.get(c)?.get(id)
-      return f ? (fileLayer.get(f) ?? null) : undefined
-    }
+  if (manifest) {
+    const held = (c: string, id: string): boolean => !!index.get(c)?.has(id)
     const records = [...parsed].flatMap(([c, m]) =>
-      [...m]
-        .filter(([id]) => repoOf(c, id) === repo)
-        .map(([id, fields]) => ({ collection: c, id, fields, descriptor: descriptors.get(c) }))
+      [...m].map(([id, fields]) => ({ collection: c, id, fields, descriptor: descriptors.get(c) }))
     )
-    const resolve = (c: string, id: string): { label: string; from?: string } | null => {
-      if (repoOf(c, id) === undefined) return null
-      const t = /\{\{\s*([A-Za-z_][\w]*)/.exec(recordTitleOf(descriptors.get(c)))?.[1]
-      return { label: String(parsed.get(c)?.get(id)?.[t] ?? id), from: ctx.packageOf(repoOf(c, id)) }
+    const outside = outsideRefs({ records, held, resolve: () => null, namespaces })
+    const { changes } = regenerate({ current: manifest, outside, ctx, held })
+    if (isStale(changes)) {
+      const stale = changes.filter(x => x.kind !== "add")
+      const msg = `stale — ${upTo3(stale.map(x => `${x.ref} (${x.kind}: ${x.why})`))}. dt exports`
+      if (strictExport) violations.push({ file: rel(path.join(root, EXPORTS_FILE)), msg })
+      else console.log(`⚠ ${rel(path.join(root, EXPORTS_FILE))} is ${msg}`)
     }
-    const outside = outsideRefs({ records, held: (c, id) => repoOf(c, id) === repo, resolve, namespaces })
-    const { changes } = regenerate({ current, outside, ctx, repo, held: (c, id) => repoOf(c, id) === repo })
-    if (!isStale(changes)) continue
-    const stale = changes.filter(x => x.kind !== "add")
-    const msg = `stale — ${upTo3(stale.map(x => `${x.ref} (${x.kind}: ${x.why})`))}. dt exports${repo ? ` --layer ${repo}` : ""}`
-    if (strictExport && !repo) violations.push({ file: rel(path.join(root, EXPORTS_FILE)), msg })
-    else console.log(`⚠ ${rel(path.join(ctx.rootOf(repo), EXPORTS_FILE))} is ${msg}`)
-  }
-  for (const [target, { layer, refs }] of [...layerOnly].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
-    const fix = () => "a workspace reading this one sees it dangle. dt exports"
-    if (strictExport) {
-      for (const r of refs)
-        violations.push({
-          file: rel(r.file),
-          msg: `${r.field}: "${r.value}" resolves only through layer ${layer} — ${fix()}`,
-        })
-      continue
-    }
-    const who = [...new Set(refs.map(r => r.referrer))]
-    const named = `${who.length} record${who.length === 1 ? "" : "s"} here (${upTo3(who)})`
-    console.log(`⚠ ${target} resolves only through layer ${layer} — named by ${named}; ${fix()}`)
   }
   // Warned, never silent: the references are real and currently resolve to nothing. This is the
   // expected reading when a module is opened without the workspace that provides the concept.
@@ -546,30 +453,11 @@ export function check(
     )
     return 0
   }
-  // this workspace's own findings first, then each record layer's under its own heading: a layer's
-  // record is validated against THIS workspace's shape, and a value its own overlay allows is a
-  // finding about the two having drifted, not a defect in our data
-  const own = violations.filter(v => !v.layer)
-  const layers = new Map<string, typeof violations>()
-  for (const v of violations)
-    if (v.layer) {
-      if (!layers.has(v.layer)) layers.set(v.layer, [])
-      layers.get(v.layer).push(v)
-    }
-  const print = (list: typeof violations): void => {
-    let last = null
-    for (const v of list) {
-      if (v.file !== last) console.log(`✖ ${v.file}`)
-      console.log(`    ${v.msg}`)
-      last = v.file
-    }
-  }
-  print(own)
-  for (const [layer, list] of layers) {
-    console.log(
-      `✖ layer ${layer}: ${list.length} violation${list.length === 1 ? "" : "s"} against this workspace's shape`
-    )
-    print(list)
+  let last = null
+  for (const v of violations) {
+    if (v.file !== last) console.log(`✖ ${v.file}`)
+    console.log(`    ${v.msg}`)
+    last = v.file
   }
   console.log(`${violations.length} violation${violations.length === 1 ? "" : "s"}. files were NOT modified.`)
   return 1

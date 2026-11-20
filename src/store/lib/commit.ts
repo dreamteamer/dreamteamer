@@ -12,17 +12,14 @@ export function commit(store: Store, files: string[], subject: string, undo: Und
     .map(d => path.resolve(store.root, storageOf(d).path) + path.sep))
   files = files.filter(f => !outside.some(o => path.resolve(f).startsWith(o)))
   if (!files.length) return
-  // ONE COMMIT PER REPO. The record's own repo is `repo`; a file a rename rewrote in a record
-  // layer belongs to that layer's clone, so the files are grouped by the longest known repo that
-  // holds each. A failure in a later group leaves an earlier group's commit standing — the same
+  // ONE COMMIT PER REPO. The record's own repo is `repo`; a file a rename rewrote in another repo
+  // belongs to that repo, so the files are grouped by the longest known repo that holds each. A failure in a later group leaves an earlier group's commit standing — the same
   // per-repo truth `dt commit` prints, stated here rather than pretended away.
   // ⚠ A file under NO known clone is the workspace's — never the caller's repo. The fallback used
   // to be `repo`, so renaming a module-owned record that a workspace record named sent the
   // workspace's rewritten `data/tasks/…` to `git add` inside the module clone as `../../data/…`,
   // which git refuses, and the rename rolled back every time auto-commit was on.
-  const repos = (store._repos ??= [
-    ...new Set([...store.descriptors.values()].flatMap(d => storageOf(d).roots.map(r => r.repo))),
-  ]
+  const repos = (store._repos ??= [...new Set([...store.descriptors.values()].map(d => storageOf(d).repo))]
     .filter(r => r !== ".")
     .sort((a, b) => b.length - a.length))
   const repoOf = (f: string): string => {

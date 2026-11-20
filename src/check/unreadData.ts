@@ -1,8 +1,7 @@
 // Record files under the workspace's own data/ that no compiled collection reads (cr-dt-008 test stage).
 //
 // A collection that leaves a module — notebooks and wikis composed out of rnd — leaves its records on disk
-// with nothing reading them, and `dt check` said "0 violations". Compile has warned about the same thing for
-// a record layer's clone since cr-dt-004 ("no collection here reads it"); this is the workspace's own data/,
+// with nothing reading them, and `dt check` said "0 violations". This warns about the workspace's own data/,
 // read at check time against the compiled descriptors. A warning, never a violation: the files are not
 // wrong, they are unread — and the remedy is usually one install.
 import fs from "node:fs"

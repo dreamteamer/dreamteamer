@@ -13,7 +13,6 @@ export function indexAdd(
   // disk — either way a walk is the current answer and this has nothing to add to it.
   if (!memo || store._idsCache.has(collection)) return
   const d = store.descriptor(collection)
-  if (store.layered(d)) return // ordered by root, then by walk — the next ids() rebuilds it across every root
   const dir = store.dir(d)
   // a placed collection's order is by ID (see _walkIds), so the insertion point is too
   const byId = !!placementOf(d)

@@ -58,7 +58,7 @@ export function setModule(ws: Workspace, store: Store, id: string, changes: Reco
   const file = path.join(ws.root, rec.fields.path, "package.json")
   if (IN_NODE_MODULES(rec.fields.path)) {
     throw new Error(
-      `module "${id}" ships from node_modules (${rec.fields.path}) — a write there is erased by the next \`npm install\`. Vendor it into modules/ or install it as a git module.`
+      `module "${id}" ships from node_modules (${rec.fields.path}) — a write there is erased by the next \`npm install\`. Vendor it into modules/.`
     )
   }
   const changed: string[] = []

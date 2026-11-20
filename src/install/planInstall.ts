@@ -51,16 +51,6 @@ export function planInstall(state: CheckoutState, opts: { linkEnv?: boolean } = 
       })
     else steps.push({ id, label: `${a.rel}: link → ${c.primary}/${a.rel}`, state: "todo" })
   }
-  // gitModules carries the declared clones that are MISSING on this checkout or off their declared
-  // ref, not every declared one — the observer narrows it, which is what makes an empty array mean "nothing to restore"
-  // rather than "none declared", and what lets a settled checkout plan with nothing todo.
-  steps.push({
-    id: "git_modules",
-    label: state.gitModules.length
-      ? `git modules: restore or re-point ${state.gitModules.join(", ")}`
-      : "git modules: nothing to restore",
-    state: state.gitModules.length ? "todo" : "skip",
-  })
   steps.push({
     id: "compile",
     label: state.stale ? "compile: runtime missing or stale" : "compile: fresh",

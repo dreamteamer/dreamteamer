@@ -15,7 +15,6 @@ export type {
   Workspace,
   PackageJson,
   DreamteamerBlock,
-  GitModuleEntry,
   Flags,
   Contribution,
   CheckItem,
@@ -144,7 +143,6 @@ export { setEntityFrontmatter } from "./entities/setEntityFrontmatter.ts"
 export { init } from "./init/init.ts"
 export { ensureRepo, ensureAllRepos } from "./repos/repos.ts"
 export { listRepos } from "./repos/listRepos.ts"
-export { installClone } from "./install/installClone.ts"
 
 export { describeCheckout } from "./lib/git/describeCheckout.ts"
 export { resolveNpm } from "./lib/npm/resolveNpm.ts"

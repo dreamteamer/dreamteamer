@@ -22,6 +22,31 @@ then `npx dreamteamer compile` and `npx dreamteamer check`.
 
 ---
 
+## Unreleased — git modules and record layers are removed
+
+`dreamteamer.git_modules` was the one way to bring a module in from a git repository, and the way a
+workspace read another workspace's records (a *record layer*). Both are gone: modules arrive under
+`modules/<id>/` or from npm (`dt install <spec>` takes a git URL), and a workspace reads its own records.
+
+- **An empty `"git_modules": {}` is harmless.** Every `dt init` seeded one; compile now prints
+  `⚠ package.json: dreamteamer.git_modules is no longer read — delete the empty key`. Delete it and
+  `git_modules/` from `.gitignore` at your convenience.
+- **A populated `git_modules` fails compile**, naming the key. Vendor each module into `modules/<id>/`
+  (or `dt install <git-url>`), drop the clones and the key, then `dt compile`.
+- **Gone from the CLI:** `dt install --clone`, the bare `dt update` that pulled clones forward (`dt update`
+  now needs `<name>` or `--engine`), `dt exports --layer`, `dt get --referrer`, and `-w <layer-name>` —
+  `-w <path>` still targets any workspace. Each is refused as an unknown flag or usage error.
+- **`dt exports` still keeps `dreamteamer-exports.json`**, and `check` and writes still accept a reference
+  the manifest vouches for. With no layer to read a holder from, `dt exports` no longer adds entries — it
+  drops the ones a record here now holds, and (when every record is read) the ones nothing references.
+- **Output shapes:** a `dt changes` / `dt commit` change no longer carries `layer`; `dt status` has no
+  `layers:` block; `migrate-stubs` drops `--layers`.
+- **The engine's own dev clone is gone too.** `git_modules/dreamteamer` no longer shadows the installed
+  engine. Link a checkout instead: `npm install ../dreamteamer` (or `npm link`), after `npm run build` there.
+- **API:** `GitModuleEntry`, `installClone`, `Storage.layers`, `Storage.roots`, `Store.rootsOf`,
+  `Store.layered` and `Store.layerOfFile` are removed; `Store.external`, `Store.vouched`,
+  `Store.checkRefs` and `Store.validate` lose their layer argument; a module's `channel` is `inline | npm`.
+
 ## Unreleased — the engine is TypeScript
 
 Nothing to do but `dt compile` for a workspace that installs the engine from npm: the package is the
@@ -32,7 +57,7 @@ compiled `dist/`, and it still runs on Node 20. Two things move:
 
   ```bash
   node node_modules/dreamteamer/dist/scripts/migrate-descriptors-v2.js --root . [--dry-run]
-  node node_modules/dreamteamer/dist/scripts/migrate-stubs.js --root . [--layers] [--dry-run]
+  node node_modules/dreamteamer/dist/scripts/migrate-stubs.js --root . [--dry-run]
   ```
 
 - **A module can keep every build output in `dist/`.** Two optional `dreamteamer` keys, for module
@@ -40,7 +65,7 @@ compiled `dist/`, and it still runs on Node 20. Two things move:
   - `"skills": "dist/skills"` stages the module's skills from its build instead of `skills/`, so a
     TypeScript skill script ships compiled with nothing generated beside its source. The staged path
     (`.dreamteamer/skills/<id>/…`) does not change. A declared folder that is missing or empty fails
-    compile naming it — a `git_modules/` clone or a `modules/` copy of such a module runs its build first.
+    compile naming it — a `modules/` copy of such a module runs its build first.
     `dt add` / `set` / `rm` / `rename skills/<id>` refuse a skill staged from a build and name its source.
   - `"scripts": { "<name>": "<file>" }` names the module's runnable scripts, and the new verb
     **`dt run <module> [<script> [<arg>…]]`** runs one by name — the workspace root as cwd, arguments
@@ -48,9 +73,9 @@ compiled `dist/`, and it still runs on Node 20. Two things move:
     (`node node_modules/@x/y/bin/check-records.mjs`) with `dt run y check-records` once the module
     declares it; its `UPDATING` note says when. `run` is now a core verb, so an extension of your own
     that contributes a `run` command is refused — rename it.
-- **A `git_modules/dreamteamer` dev clone needs a build.** `dt` runs the compiled `dist/` in a checkout
+- **A linked checkout of the engine needs a build.** `dt` runs the compiled `dist/` in a checkout
   as in the npm package, and says "not built" when it is missing: run `npm install && npm run build`
-  in the clone, and again after pulling it.
+  in the checkout, and again after pulling it.
 
 ## 0.49.1 — four fixes for upgrades and everyday writes
 

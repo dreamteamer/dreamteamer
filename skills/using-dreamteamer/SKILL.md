@@ -40,7 +40,7 @@ unsure which skill owns the job in front of you.
 
 **lifecycle:** `dt init` makes a new workspace in one command — skeleton, install, compile, check,
 one commit (`references/setup.md`). a FRESH CLONE owes `dt install` before anything reads: it makes
-the checkout ready (the engine, `git_modules/`, then compile) — `.dreamteamer/`,
+the checkout ready (the engine and modules, then compile) — `.dreamteamer/`,
 the harness folders and the root `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` are gitignored build output,
 so a clone has no runtime and no orientation until compile writes them — and `.env` is
 per-machine (declared keys: `references/records.md`). `dt status` says
@@ -93,8 +93,7 @@ the primary workspace's, whoever shipped the skill you are reading.
 
 - **start a session in the workspace it is about.** it is the only thing that loads that workspace's
   instructions, and it settles name collisions in its favour.
-- **to touch another workspace from here, `-w <name|path>` (`--workspace`) — not `cd`.** a record
-  layer is named by its git_modules name (`-w project-alpha`), any other workspace by path. the flag
+- **to touch another workspace from here, `-w <path>` (`--workspace`) — not `cd`.** the flag
   resolves the target's schema, validates and commits there, and leaves the working directory alone;
   a `cd` outlives the command. (`--vault <path>` is the deprecated spelling.)
 - **every record write prints the workspace it landed in** — `✔ <workspace> · <path>`. a write to
@@ -108,20 +107,20 @@ follows a write — a record verb, `dt commit`, a system verb, a script that cal
 hand-edited record — ENDS with the record report, and nothing written, nothing appended.
 
 **measure it, never recall it.** run `dt changes` before replying: it lists what is written and
-not committed, in this workspace and every record layer it reads. if you committed during the turn,
+not committed, in every repo of this workspace. if you committed during the turn,
 `dt changes --since <the sha HEAD had before your first write>` (or fold what `dt commit` printed —
 the same block). the report, for a turn that added a contact, set two, removed a meeting and added
-an issue with `-w project-a`:
+an issue:
 
 ```
-records — contacts: 1 created, 2 updated · issues (project-a): 1 created · meetings: 1 deleted
-[contacts/sam-diaz](data/contacts/sam-diaz.contact.md) (created) · [contacts/dana-oren](data/contacts/dana-oren.contact.md) (updated) · [contacts/harbor-mutual-desk](data/contacts/harbor-mutual-desk.contact.md) (updated) · [issues/login-times-out](git_modules/project-a/data/issues/login-times-out.issue.md) (created) · meetings/kickoff (deleted)
+records — contacts: 1 created, 2 updated · issues: 1 created · meetings: 1 deleted
+[contacts/sam-diaz](data/contacts/sam-diaz.contact.md) (created) · [contacts/dana-oren](data/contacts/dana-oren.contact.md) (updated) · [contacts/harbor-mutual-desk](data/contacts/harbor-mutual-desk.contact.md) (updated) · [issues/login-times-out](data/issues/login-times-out.issue.md) (created) · meetings/kickoff (deleted)
 ```
 
 - **line one is `dt changes`'s first line, verbatim**: one entry per collection touched, counts per
-  verb; a write into a record layer shows as `<collection> (<layer>)`.
+  verb.
 - **then every record as a link** — `[<ref>](<path>)`, the path column `dt changes` prints, which is
-  relative to the workspace root (a layer's record too) so the editor opens it. a deleted record has
+  relative to the workspace root so the editor opens it. a deleted record has
   no file: write its ref with `(deleted)`, unlinked. past twenty records, say `+ N more` and
   point at `dt changes --json`.
 - **measured, not attributed.** `dt changes` measures the shared state exactly but cannot say
@@ -197,7 +196,7 @@ write. Every other verb works on them.
 ⚠ **ONE difference, and it is POLICY rather than spelling: a SYSTEM write commits itself; a RECORD
 write does not.** An uncompilable or unpublished schema is not a state a workspace should sit in, so
 every system verb writes its source, proves it with a real compile, and commits — **in the repo that
-holds the source**, so a write into a `git_modules/` module commits there and says
+holds the source**, so a write into a module that is a repo of its own commits there and says
 `ahead 1 — push when ready`. A record write lands on disk and `dt commit` publishes it.
 
 ⚠ **Every verb that moves records or clears values takes `--dry-run` and prints its plan first:**

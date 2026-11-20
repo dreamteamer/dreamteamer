@@ -262,7 +262,7 @@ naming both versions and the fix.
 ## the workspace manifest — the `dreamteamer` block in `package.json`
 
 Keys are snake_case and closed: compile refuses an unknown one, naming the list. `dt init` writes
-`workspace_module`, `data_path`, `harnesses`, `git_modules`, `disable` and `gitignore_runtime_folder`.
+`workspace_module`, `data_path`, `harnesses`, `disable` and `gitignore_runtime_folder`.
 
 | key | what it holds |
 |---|---|
@@ -275,7 +275,6 @@ Keys are snake_case and closed: compile refuses an unknown one, naming the list.
 | `setup` | `{ "skipped": [<unit id>…] }`: the setup units `dt setup <unit> --skip` recorded as skipped (`setup.md`) |
 | `auto_commit` | whether a record write also commits (default off) |
 | `harnesses` | which coding-agent adapters compile writes |
-| `git_modules` | the lockfile map `dt install` restores into `git_modules/` — `{ url, ref }` per clone; a clone whose own package.json names `workspace_module` is a RECORD LAYER (below), not a bundle, and `records: [<collection>…]` narrows it (or makes any clone a layer) — `module: true` adds its one workspace module; what a clone NEEDS (the holders its `dreamteamer-exports.json` names) is installed here too, once at the top and linked under the clone (0.46.0) |
 | `disable` | what to drop from the compile: `modules/<id>` (a whole module, its code included) or `<kind>/<id>` (one entity) |
 | `local_assets` · `postinstall` · `repos_path` · `gitignore_runtime_folder` | links a worktree gets · a script `dt install` runs · where `repos` records materialise · whether `.dreamteamer/` is gitignored |
 
@@ -319,13 +318,13 @@ rendered folder; `dt status` names it under `storage:`. Three rules follow from 
 - **An unset or empty var refuses, loudly, and never creates a literal folder.** Compile warns,
   naming the collection and the var; every record verb on the collection then refuses with the same
   names until the var is set and the workspace recompiled. `check` says once that the collection is
-  not read here and stays green, as it does for an uninstalled record layer.
+  not read here and stays green.
 - **A folder outside the workspace is outside every git repo here.** `dt commit` reports it on its
   own line and never commits it — the records are kept, by design, on this machine only. A path
   that renders inside the workspace is an ordinary root, committed like any other.
 - **Declare the var** in the shipping module's `dreamteamer.vars` (or the workspace's), so
   `.env.example` names it; one declared nowhere warns at compile and still renders. It combines with
-  neither `storage.owner: module` nor `storage.under`, and a record layer may not list it.
+  neither `storage.owner: module` nor `storage.under`.
 
 ## relationship-based storage — records beside the record they belong to
 
@@ -401,23 +400,22 @@ data/meetings/2026/10/offsite.meeting.md                       ← meetings/2026
 - **When NOT to use it**: a record several parents share equally, an owner usually unknown, a
   collection nobody browses as a folder. It organises files; it grants nothing.
 
-## module-owned collections — records that live in the module's clone
+## module-owned collections — records that live in the module's repo
 
 A module usually ships SHAPE and the workspace holds the records. A collection can instead keep its
 records beside the module's sources, so every workspace that installs the module shares ONE list:
 
 ```yaml
-# git_modules/org/collections/people.collection.yaml
+# modules/org/collections/people.collection.yaml
 name: people
 storage:
-  owner: module          # records at git_modules/org/data/people/, committed to the module's repo
+  owner: module          # records at modules/org/data/people/, committed to the module's repo
 ```
 
 - **`owner: module`** roots the collection at `<module root>/data/<collection>` and sets its repo to
-  the module's clone: a write there commits in that repo (`ahead 1 — push when ready`), and
-  `dt commit` publishes each side of a cross-repo write in its own repo. The module must be a
-  committable clone — a module under `node_modules/`, or a `git_modules/` folder with no `.git`,
-  is a compile error naming the fix.
+  the one holding the module: a write there commits in that repo (`ahead 1 — push when ready`), and
+  `dt commit` publishes each side of a cross-repo write in its own repo. A module under
+  `node_modules/` cannot hold records — that is a compile error naming the fix.
 - **`owner: workspace`** is the default. **`owns_data: true` on the module** only changes the
   default for the collections it ships, so one module can carry a shared `people` beside a
   per-workspace `tasks`: flag nothing and mark `people`, or flag the module and mark `tasks`
@@ -426,90 +424,23 @@ storage:
   or one workspace's copy would drift from the list every other workspace shares.
 - A record in the workspace may reference an owned record like any other (`assignee: people/<id>`);
   `check` validates across the two repos. Editing an owned record in one workspace reaches the
-  others on push and `dt update`.
+  others when they pull the module's repo.
 - `dt rm modules/<m>` refuses while an owned collection still has records inside the module folder.
 
-## record layers — another workspace's records, read here
+## the exports manifest — references to records held elsewhere
 
-Several workspaces install one module for their shared shapes — an HQ and the projects it oversees
-all take `tasks` from the same package — while each keeps its own task RECORDS in its own repo. The
-HQ reads the projects' records by cloning each project under `git_modules/`:
+A record may name an id no record here holds — a person another workspace keeps. **`dreamteamer-exports.json`**
+at the workspace root vouches for such ids: per collection, per id, a display `label` and optionally the
+package `from` holding it (ids and names only). `dt check` and every write name a reference no record here
+answers **external**, not dangling, when the manifest lists it; where the manifest names this workspace as
+the holder and the record is missing, the reference is dangling. `dt get <ref>` names an external id.
 
-```json
-"git_modules": {
-  "org":              { "url": "…", "ref": "main" },
-  "project-alpha":   { "url": "…", "ref": "main", "module": true },
-  "project-beta":    { "url": "…", "ref": "main", "records": ["tasks", "projects"] }
-}
-```
-
-- **What the CLONE is decides it (0.41.0).** A clone whose own package.json names
-  `dreamteamer.workspace_module` is a workspace, so it is a layer: every collection both workspaces
-  have reads its data folder. A clone that names none is a bundle, and its `modules/` unpack as
-  before. `records:` is optional and NARROWS — only the listed collections are read — and it still
-  makes any clone a layer. A collection that cannot layer (below) is skipped with an `ℹ` when the
-  clone holds files for it; a data folder no collection here accounts for (a project's own domain
-  collections, read without their module) is a compile warning naming the folder and its file
-  count, never a failure.
-- **A layer is never a bundle.** Its own `modules/` is not unpacked and it
-  is not an extension; the shapes are the modules both workspaces install. Its nested
-  `git_modules/` contribute no sources either — but what it NEEDS is installed here (0.46.0), the
-  npm way: the entries of its `git_modules` that provide a package its committed
-  `dreamteamer-exports.json` names as a holder, and only those. `dt install` clones each once at this
-  workspace's `git_modules/<name>` and links `<clone>/git_modules/<name>` to it; their records are read
-  here with the union of every declarer's `records` list, and `dt status` says `· via git_modules/<clone>`.
-  Your own declaration overrides a clone's (said in status); two clones that disagree get the second
-  copy nested under its declarer; nothing is refused.
-- **`module: true` also compiles the clone's WORKSPACE module** — `modules/<workspace_module>`, as
-  the clone's own package.json names it — as a module source here, the way a bundle's module
-  compiles: its agents, skills, commands, command-bindings, ui-views, mixins and collections, with a
-  `modules/<id>` record whose `path` is inside the clone. That is how a project's own agent becomes
-  dispatchable from the workspace that oversees it. Only that one module, only its sources (an
-  extension entry in it is not loaded), and the records half is unchanged. Compile refuses, naming
-  the entry: a clone with no `workspace_module`; a module whose id is `default` (the role name every
-  workspace's own module carries — name the project's module after the project); an id another
-  module here already holds. `dt status` adds `· module <id>` to the layer's line.
-- **Each layered collection gains the clone's data folder as a read root below the workspace's
-  own** — the compiled descriptor states them as `compiled.layers`, and `storageOf(d).roots` is the
-  write root first, then each layer. `dt list`, `get`, `check`, the inbound-reference guard of `rm`
-  and reference resolution read the union. An id two roots hold is a `check` violation naming both
-  files, and a write to it is refused until one is removed; the first root in order answers reads
-  meanwhile, never silently.
-- **A workspace read as a layer stands alone, and `dreamteamer-exports.json` is how (0.45.0).** A
-  reader reads a layer WITHOUT that layer's own layers, so a reference a repo's records make to an id no
-  file of the repo holds — a person the reading HQ keeps, a record only the repo's own layer holds —
-  needs proof the id exists elsewhere. `dt exports` writes it: one generated, committed file at the
-  repo root listing, per such id, its display name and the package name of the workspace holding it
-  (ids and names only; never written by hand). `dt check` reads the manifest of the repo the referring
-  record sits in — never a layer's layers — and names a reference no root answers **external**, not
-  dangling, when the manifest lists it and its holder is not read here; where the holder IS read and
-  lacks the id, the reference is dangling. The live record always wins where it is read. A reference
-  this workspace's own records reach only through a layer, unlisted, is a `⚠ … dt exports` line, a
-  manifest `dt exports` would change or drop an entry of is named stale, and `dt check
-  --strict-export` makes both violations — the gate for a workspace others read. `dt exports --layer
-  <name>` writes a layer's manifest from this workspace's view (how a reader records the upward ids a
-  layer cannot see), and `dt get <ref> [--referrer <ref>]` names an external id. A conflicted manifest:
-  keep the union of both sides' lines, then `dt exports`. Stub records (0.41.0–0.44.x) are gone:
-  `node node_modules/dreamteamer/dist/scripts/migrate-stubs.js --root . [--layers] [--dry-run]` turns each
-  into a manifest entry.
-- **A new record goes to the write root** (`storage.path` — this workspace, or the owning module's
-  clone for `storage.owner: module`). **An edit or removal of a layer's record lands in place** and
-  commits in the layer's repo; `dt commit` samples every layer and publishes one commit per repo.
-  `rename` and `relocate` refuse a layer's record: those are done in the layer's own workspace.
-- **A layer's records are validated against THIS workspace's shape**, and their findings print under
-  a `layer <name>` heading rather than as this workspace's data — a value the project's own overlay
-  allows is the two workspaces having drifted, which is worth seeing and not worth hiding.
-- **A mirror is kept only between records of one repo.** A task here naming a project a layer holds
-  writes no mirror into the layer, and `check` expects none; the project's own `tasks` mirror on that
-  record lists only its own tasks.
-- **What may be layered:** a collection stored in this workspace. Not a `storage.owner: module`
-  collection (one shared list is read from the module's clone already), not a placed one
-  (`storage.under`), not an env-pointed one, not a compiled source. NAMING one of those in `records:`
-  is a compile error, as is a name no collection here answers to.
-- **A layer whose clone is absent** — a fresh checkout before `dt install` — compiles; `check`
-  says its records are unread (only a `records:` or `module: true` entry is known to be a layer before
-  its clone exists). `dt status` lists layers after modules with the collections FOUND in each;
-  `dt update` pulls them like any clone, and a long-lived store re-indexes when a pull lands files.
+`dt exports` keeps the manifest level with the records: it drops an entry for an id a record here now
+holds, and — when every record under the data folder is read — one nothing references, then commits that
+one file. `dt check` names a manifest `dt exports` would change as stale, and `--strict-export` makes that a
+violation. A conflicted manifest: keep the union of both sides' lines, then `dt exports`. Stub records
+(0.41.0–0.44.x) are gone: `node node_modules/dreamteamer/dist/scripts/migrate-stubs.js --root . [--dry-run]`
+turns each into a manifest entry.
 
 ## mixins — a live shared field set
 

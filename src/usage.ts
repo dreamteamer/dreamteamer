@@ -5,9 +5,8 @@
 
 export const USAGE = `usage: dreamteamer <verb> [<target>] [flags]
 
-  --workspace, -w <name|path>
-                   run the verb in another workspace: a record layer this workspace declares, by
-                   its git_modules name, or any workspace by path. A path resolves from the
+  --workspace, -w <path>
+                   run the verb in another workspace. The path resolves from the
                    directory you typed it in; every other path in the command resolves inside the
                    target. The working directory is unchanged, and the flag reaches this command
                    only: a process it starts resolves its own workspace from its own directory.
@@ -30,8 +29,6 @@ the longest DECLARED collection prefix, so finance/transactions/2026/03/coffee i
   get    <collection>/<id> [--json]           (--json, and each list --json row, adds $file and
                                                $repo: where the record is read from and the repo
                                                that commits it — null outside every repo here)
-                                              [--referrer <collection>/<id>] an id no root holds is
-                                               named from the referrer's repo's exports manifest
   add    <collection> ["<title>"] --<field> <value> … [--id <explicit-id>]
                                               (ONE bare positional fills the collection's title
                                                field — the one its record_title opens with — so
@@ -83,8 +80,8 @@ skills, agents, commands, command-bindings, ui-views, mixins, and any kind an
 installed extension adds). ⚠ ONE
 difference in POLICY, not in spelling: a SYSTEM write commits itself, because an uncompilable or
 unpublished schema is not a state a workspace should sit in; a RECORD write does not — \`commit\`
-publishes it. The commit lands in the repo that holds the source, so a write into a git module
-commits there.
+publishes it. The commit lands in the repo that holds the source, so a write into a module that
+is a repo of its own commits there.
   add    collections --name <name> [--module <m>] [--namespace <ns>] [--mixins docs,…]
                                               [--id-from '{{ … }}'] [--description "…"] [--suffix <s>]
                                               (--namespace health --name doctors === --name
@@ -97,8 +94,7 @@ commits there.
                                                (§8), so every later \`add collections --module <id>\` infers it.
                                                --extension adds src/extension.js with a one-token setup unit;
                                                --package names it for npm and makes it publishable — the
-                                               folder stays the id. Without it, folder = package name = id.
-                                               the git shape is \`install --clone <url> [name]\`)
+                                               folder stays the id. Without it, folder = package name = id.)
   add    skills --name <id> --description "…"  (skills/<id>/SKILL.md — --description is required,
                                                because an undescribed skill is undiscoverable)
   add    ui-views --route </route> --scope collection --collection collections/<c>
@@ -128,7 +124,7 @@ commits there.
   fmt    [<collection>] [--dry-run]           (collection and mixin sources in block style, top-level
                                                keys in canonical order; fields, the keys inside a
                                                field and every comment stay where they are. Sources
-                                               under git_modules/ and node_modules/ are skipped)
+                                               under node_modules/ are skipped)
 
 field verbs — a field is the one sub-entity, and it has verbs of its own (there is no \`fields\`
 collection: the ENGINE does not read one, and \`rename-field\` was the only capability it would buy):
@@ -192,7 +188,7 @@ workspace verbs:
               [--harnesses claude-code,codex,pi,gemini-cli,cursor] [--workspace_module <name>]
   --version   print the engine version (works anywhere)
   install     make THIS checkout ready — the engine, .env (linked from the primary when this is a
-              worktree), declared local assets, git modules, compile, and a declared postinstall.
+              worktree), declared local assets, compile, and a declared postinstall.
               Idempotent: it prints a board of what it found and what it did
               [--dry-run] plan only  [--json] the board as data
               [--link-env] link .env even into a worktree OUTSIDE the primary root
@@ -218,30 +214,25 @@ workspace verbs:
               Setup flags as for \`setup\`: [--input <id>=<value>]… [--allow <kind>]… [--no-input];
               [--no-commit] [--json]
               Exit 0 done · 1 refused or failed (nothing half-written) · 2 usage · 3 input missing
-  install     --clone <url> [name]            attach a git module to this workspace
   update      <name>[@<version>] | --engine   move ONE npm pin forward on purpose: to the latest
               release (or the named version), re-pinned exactly, closure-checked as install is,
               compiled, committed; a module preset moves its installed members to its new pins.
               A downgrade needs [--allow downgrade]; old nav settings with no nav.yaml refuse a
               module update until migrated, or [--allow nav-reset]; a development link is skipped
               and named; [--from <dir>] resolves from a folder of tarballs; [--no-commit]
-  update      pull git_modules clones forward (ff-only on the lockfile ref), rebuild,
-              then compile; [<name>] updates just one. dirty clones are skipped
   compile     materialize modules + workspace sources into .dreamteamer (+ harness adapters)
               [--watch] recompile on source changes
   check       validate every record against the compiled descriptors (report-only), then every
-              installed extension's own checks. A reference this workspace's own records reach only
-              through a record layer is a ⚠ line until its exports manifest lists it (a reader
-              without that layer sees it dangle); a reference no root answers is external when the
-              referring repo's manifest vouches for it. nav.yaml: a name that resolves to nothing or
-              is listed twice is a ⚠ line, never a violation
-              [--strict-export] makes each unlisted one, and a stale manifest, a violation
+              installed extension's own checks. A reference no record here answers is external when
+              the workspace's exports manifest vouches for it. nav.yaml: a name that resolves to
+              nothing or is listed twice is a ⚠ line, never a violation
+              [--strict-export] makes a stale manifest a violation
               modules/<id> --alone: is that inline module publishable — packed, installed into a fresh
               workspace on this engine with only its declared dependencies, compiled, checked; exit 0
               publishable, 1 refused naming why, 2 usage [--keep] leaves the temp workspace
-  exports     write this workspace's dreamteamer-exports.json — each id its records name that no file
-              here holds, with its label and the workspace holding it — and commit that one file
-              [--layer <name>] that layer's, from this workspace's view  [--dry-run] [--json]
+  exports     bring this workspace's dreamteamer-exports.json level with its records — drop each entry
+              for an id a record here now holds, or (when every record is read) one nothing
+              references — and commit that one file  [--dry-run] [--json]
   doctor      what works on this machine — the engine, then each extension's checks — as one board:
               READY / DEGRADED / UNAVAILABLE, each fix on its row. Exit 0 [--strict] exit 1 when
               anything is UNAVAILABLE [--json]
@@ -259,13 +250,12 @@ workspace verbs:
   run         <module> [<script> [<arg>…]]   run a script a module declares (dreamteamer.scripts) by
               NAME, never by its path inside the package: on this node, at the workspace root, every
               argument after the script passed to it untouched, its exit code returned. The module is
-              its package name or its id; modules/<id> and a git_modules clone shadow the installed
-              package, as for extensions. Without a script: list the module's scripts.
+              its package name or its id; modules/<id> shadows the installed package, as for
+              extensions. Without a script: list the module's scripts.
               Exit: the script's · 1 no such module, script or file · 2 usage
 
-  changes     the records created / updated / deleted in every repo that holds records — the
-              workspace and each record layer — grouped by collection, each with its path, layer
-              and whether it is committed. Its first line is the report a reply ends with
+  changes     the records created / updated / deleted in every repo that holds records —
+              grouped by collection, each with its path and whether it is committed. Its first line is the report a reply ends with
               [--since <sha|YYYY-MM-DD>] (default: HEAD — what is written but not committed;
               a sha or date adds the commits since then, e.g. --since HEAD~1) [--json]
   commit      publish records already written to disk: samples git status over every

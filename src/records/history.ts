@@ -22,7 +22,7 @@ const FORMAT = "%H%x00%an%x00%aI%x00%s"
  * `git log` for a record, newest first. `--follow` (so a rename keeps its past) only applies to a
  * single pathspec — git rejects it outright with several — so a layered record trades it away.
  */
-/** The repo a record's file is committed in: a module-owned or layer record's past is in that clone. */
+/** The repo a record's file is committed in: a module-owned record's past is in that module's repo. */
 export const repoOf = (store: Store, descriptor: Descriptor, file: string): string =>
   path.resolve(store.root, store.repoOfFile(descriptor, file))
 

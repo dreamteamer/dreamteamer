@@ -1,16 +1,13 @@
 import path from "node:path"
 import fs from "node:fs"
-import { type StdioOptions, execFileSync } from "node:child_process"
 import { Store } from "./store/Store.ts"
 import { commitPending } from "./changes/commitPending.ts"
-import { declaredGitModules } from "./workspace/declaredGitModules.ts"
 import { emit } from "./lib/emit.ts"
-import { layerEntries } from "./workspace/layerEntries.ts"
 import { storageOf } from "./record/storageOf.ts"
 import { renderStatusLines } from "./setup/renderStatusLines.ts"
 import { statusLines } from "./setup/statusLines.ts"
-import type { Descriptor, Workspace } from "./types.ts"
-import { locationOf, moduleIdOf } from "./compile/compile.ts"
+import type { Workspace } from "./types.ts"
+import { locationOf } from "./compile/compile.ts"
 import { CHANNEL_LABEL } from "./compile/consts.ts"
 import { describeCheckout } from "./lib/git/describeCheckout.ts"
 import { discoverModules } from "./workspace/discoverModules.ts"
@@ -71,8 +68,7 @@ export function statusCommand(ws: Workspace, rest: string[]): number {
   const presets = presetMembers(ws)
   console.log("modules:")
   for (const m of modules) {
-    // §10: the folder name IS the label. `hr  git_modules @ 3f2a1c (dirty)` needs no
-    // legend, and `[inline]` needed one every single time.
+    // §10: the folder name IS the label — `[inline]` needed a legend every single time.
     let line = `  ${m.name.padEnd(20)} ${locationOf(m, ws.root)}`
     // a development link (a folder spec): never pinned, skipped by update
     try {
@@ -85,15 +81,6 @@ export function statusCommand(ws: Workspace, rest: string[]): number {
     } catch {
       /* not under node_modules */
     }
-    if (m.channel === "git") {
-      const ref = tryGit(m.root, ["rev-parse", "--short", "HEAD"])
-      const dirty = tryGit(m.root, ["status", "--porcelain"])
-      // ⚠ A SCHEMA WRITE NOW COMMITS HERE (§9), so a clone can be ahead of its remote
-      // with work the operator does not know they are holding. `status` is the command
-      // they run when something feels wrong, so it is where the count belongs.
-      const ahead = tryGit(m.root, ["rev-list", "--count", "HEAD", "--not", "--remotes"])
-      line += ` @ ${ref ?? "?"}${dirty ? " (dirty)" : ""}${Number(ahead) > 0 ? ` — ahead ${ahead}, push when ready` : ""}`
-    }
     const sh = shadowed.get(m.name)
     if (sh) line += ` — shadows ${CHANNEL_LABEL[sh.loser]} copy`
     // a MODULE PRESET (CR-dt-008): how many members are here, then each absent and each drifted one
@@ -105,55 +92,6 @@ export function statusCommand(ws: Workspace, rest: string[]): number {
       for (const x of p.members)
         if (x.installed && x.installed !== x.pinned)
           console.log(`    ${x.name} ${x.installed} (preset ${p.id} names ${x.pinned})`)
-    }
-  }
-  // record layers: other workspaces cloned here for their records. The collections listed are
-  // the ones FOUND — compiled with this layer as a root and holding a folder in the clone —
-  // never the declared `records:`, which narrows and may name a folder that does not exist.
-  const layers = layerEntries(ws.pkg, ws.root)
-  if (layers.length) {
-    console.log("layers:")
-    let descriptors: Descriptor[] = []
-    try {
-      descriptors = [...new Store(ws).descriptors.values()]
-    } catch {
-      /* no runtime yet */
-    }
-    // a layer a clone needed says so (`via`); one this workspace's declaration overrides says whom; a
-    // copy nested under a clone, or a clone of its own where a link would be, is drawn under its clone
-    const declared = declaredGitModules(ws.pkg, ws.root)
-    const under = (by: string): string[] => [
-      ...declared.nested
-        .filter(c => c.by === by)
-        .map(c => {
-          const d = path.join(ws.root, by, "git_modules", c.name)
-          return `    ↳ ${c.name} nested @ ${tryGit(d, ["rev-parse", "--short", "HEAD"]) ?? "?"} — ${c.url} (${c.ref}); git_modules/${c.name} is ${c.top.url} (${c.top.ref})`
-        }),
-      ...[...declared.map]
-        .filter(([n, m]) => m.declarers.includes(by) && isOwnClone(path.join(ws.root, by, "git_modules", n)))
-        .map(
-          ([n]) =>
-            `    ↳ ${n} its own clone @ ${tryGit(path.join(ws.root, by, "git_modules", n), ["rev-parse", "--short", "HEAD"]) ?? "?"}, not a link to git_modules/${n}`
-        ),
-    ]
-    for (const l of layers) {
-      const over = declared.mismatches.filter(m => m.name === l.name)
-      const asked = over.length
-        ? ` · overrides ${over.map(m => `${m.by} (${m.what} ${m.theirs})`).join(", ")}`
-        : l.via.length
-          ? ` · via ${l.via.join(", ")}`
-          : ""
-      const dir = path.join(ws.root, "git_modules", l.name)
-      const ref = fs.existsSync(dir) ? tryGit(dir, ["rev-parse", "--short", "HEAD"]) : null
-      const mod = l.module ? modules.find(m => m.layer === l.name) : null
-      const found = descriptors
-        .filter(d => storageOf(d).roots.some(r => r.layer === l.name && fs.existsSync(path.join(ws.root, r.path))))
-        .map(d => d.name)
-        .sort()
-      console.log(
-        `  ${l.name.padEnd(20)} ${ref ? `git_modules @ ${ref}${tryGit(dir, ["status", "--porcelain"]) ? " (dirty)" : ""}` : "not installed — dreamteamer install"} · records: ${found.join(", ") || "(none found)"}${l.module ? ` · module ${mod ? moduleIdOf(mod.name) : "-"}` : ""}${asked}`
-      )
-      for (const line of under(`git_modules/${l.name}`)) console.log(line)
     }
   }
   // env-pointed roots (`storage.path: ${env:NAME}/…`), rendered per machine by compile: the
@@ -231,27 +169,4 @@ export function statusCommand(ws: Workspace, rest: string[]): number {
   }
   console.log("✔ .dreamteamer is fresh")
   return 0
-}
-
-/**
- * git calls whose failure we CATCH must not print git's own error: execFileSync forwards the
- * child's stderr to ours unless told otherwise, so a handled "not a git repository" still
- * reached the user's terminal. stdout stays piped because we read it.
- */
-const QUIET: StdioOptions = ["ignore", "pipe", "ignore"]
-
-function tryGit(cwd: string, args: string[]): string | null {
-  try {
-    return execFileSync("git", args, { cwd, stdio: QUIET }).toString().trim() || null
-  } catch {
-    return null
-  }
-}
-
-const isOwnClone = (p: string): boolean => {
-  try {
-    return !fs.lstatSync(p).isSymbolicLink() && fs.existsSync(path.join(p, ".git"))
-  } catch {
-    return false
-  }
 }

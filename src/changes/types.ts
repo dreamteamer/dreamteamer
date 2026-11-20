@@ -18,13 +18,11 @@ export interface RecordChange {
   ref: string
   repo: string
   change: ChangeKind
-  layer?: string | null
   path?: string
 }
 
 export interface ChangeGroup<T extends RecordChange = RecordChange> {
   collection: string
-  layer: string | null
   created: number
   updated: number
   deleted: number

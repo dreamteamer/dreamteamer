@@ -20,15 +20,6 @@ export function renameModule(ws: Workspace, store: Store, oldId: string, newId: 
       `module "${oldId}" ships from node_modules (${fields.path}) — a write there is erased by the next \`npm install\`. Rename it in its own repo and release.`
     )
   }
-  if (fields.location === "git_modules") {
-    // ⚠ TWO COMMITS BY CONSTRUCTION, and the verb says so rather than half-doing it: the module's
-    // package.json lives in the clone's own repo, and this workspace's half (git_modules,
-    // dependencies, modules/<id> refs) is a commit here. Perform the workspace half only after the
-    // clone half has landed and been pushed.
-    throw new Error(
-      `module "${oldId}" is a clone under ${fields.path}, whose package.json is in ANOTHER repo — a git-shape rename is TWO commits by construction.\n  1. rename it there (package.json name → "${newId}") and push;\n  2. re-run this to perform the workspace half: dreamteamer.git_modules, every dependencies entry, and modules/${oldId} references.`
-    )
-  }
   const oldPkgName = fields.name
   const oldRoot = path.join(ws.root, "modules", oldId)
   const newRoot = path.join(ws.root, "modules", newId)

@@ -10,12 +10,11 @@ dt changes                        # what is written and not committed — every 
 dt changes --since <sha|YYYY-MM-DD>   # everything since then: the commits AND the uncommitted state
 dt changes --since HEAD~1         # what 0.41.0's bare `dt changes` answered: the last commit, plus anything pending
 dt changes --json
-dt changes -w <layer>             # the same, run IN a record layer (its own paths, its own HEAD)
+dt changes -w <path>              # the same, run IN another workspace (its own paths, its own HEAD)
 ```
 
 per record it reports `change` — `created` / `updated` / `deleted` — the `ref`, the
-workspace-relative `path`, the `repo` it lives in, the record `layer` it was read from (empty for
-the workspace and for a module's own clone) and whether it is `committed`. the human output's FIRST
+workspace-relative `path`, the `repo` it lives in and whether it is `committed`. the human output's FIRST
 LINE is the report line a reply ends with (`SKILL.md`, "a reply that wrote records ends with the
 record report"), then one row per record, then the count. `dt commit` prints the same block for
 what it just published. **read-only by construction** — nothing stored, so running it twice is free
@@ -23,7 +22,7 @@ and running it wrong costs nothing.
 
 `--json` is `{ since, head, events, collections }`: `events` one entry per record (carrying 0.41.0's
 `type` — `item-added` / `item-updated` / `item-removed` — beside `change`, so an older reader keeps
-working), `collections` one count row per collection and layer.
+working), `collections` one count row per collection.
 
 ## when to use
 
@@ -34,8 +33,8 @@ of commits did to the *data*. **not for** ordinary "show me the diff" questions 
 
 ## the mechanism — enough to trust its edges
 
-1. it covers **every repo that holds records**: each compiled descriptor's roots — the write root
-   and every record layer's — grouped per repo (a module can own its records). a changed path that
+1. it covers **every repo that holds records**: each compiled descriptor's root, grouped per repo
+   (a module can own its records). a changed path that
    matches no descriptor is **skipped** — source and runtime churn are not data events — and
    runtime entities never appear.
 2. the uncommitted half is the same `git status` sample `dt commit` publishes from and `dt status`
@@ -69,6 +68,6 @@ rather than run over it.
 | reporting every row `dt changes` prints | the uncommitted state is shared with other sessions — keep only your own writes |
 | an empty report when nothing was written | nothing written, nothing appended |
 | expecting bare `dt changes` to show the last commit | since 0.42.0 it is the uncommitted state; `--since HEAD~1` adds the last commit |
-| hand-rolling the diff + path mapping | `dt changes` is the mechanism; a hand-roll misses folder-shape records, layers, per-repo HEADs and the rename split |
+| hand-rolling the diff + path mapping | `dt changes` is the mechanism; a hand-roll misses folder-shape records, per-repo HEADs and the rename split |
 | writing an events file to "remember" what changed | history is the record; anything you write can drift from it |
 | reading the output as a to-do list | it says what changed, not what it means — the judgment is yours |

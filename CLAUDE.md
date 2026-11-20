@@ -11,8 +11,8 @@ its declarations generated from `src/types.ts` and the signatures, plus the `dre
 `src/*.ts` is the source, and its relative imports name the `.ts` file (`./store.ts`).
 
 - **`bin/dreamteamer.js` always runs `dist/`**, in the npm package and in a checkout alike — the bin
-  runs what ships, and refuses with "not built" when `dist/` is missing. A checkout (including a
-  `git_modules/dreamteamer` dev clone) runs `npm run build` first. Running the TypeScript directly is a
+  runs what ships, and refuses with "not built" when `dist/` is missing. A checkout (including one a
+  workspace links in as `node_modules/dreamteamer`) runs `npm run build` first. Running the TypeScript directly is a
   separate, explicit choice, never the bin's fallback.
 - **`npm run build`** (also run by `prepack`, and by the test runner before tier 2) emits `dist/` with
   tsc, rewriting `.ts` imports to `.js`. Node refuses to strip types under `node_modules`, so `src/` is
@@ -64,8 +64,8 @@ fail when a signature loosens and a ratchet that no public function takes or ret
 named list. `npm run contract` runs it; the public-API test runs it against `src/` AND the packed tarball.
 A type-only edge (`import type`, `typeof import(…)`) is erased by construction, so `layers` and the
 browser-closure test skip it — that is what lets both halves name `src/types.ts`.
-`bin/dreamteamer.js` stays JavaScript (type-checked via `checkJs`): it is what npm links and what the
-dev-clone probe looks for, and it runs before it knows which engine to load.
+`bin/dreamteamer.js` stays JavaScript (type-checked via `checkJs`): it is what npm links, and it runs
+before any of the engine is loaded.
 
 ## IMPORTANT — core is records + the compiler; everything else is an EXTENSION
 
@@ -201,7 +201,7 @@ Three things hold this up, and all three exist because removing the wrapper remo
 
 ⚠ **A pre-flatten engine cannot read a runtime compiled by this one** — it looks for
 `.dreamteamer/system/collections` and reports "no compiled runtime", which is accurate and fixed by
-`dt compile`. Only reachable when two engines share a workspace (the self-shadowing dev-clone case).
+`dt compile`. Only reachable when two engines share a workspace.
 The VS Code extension is immune from 0.6.33 on: it probes both layouts and reads `storage.base`.
 
 ## IMPORTANT — namespaces are DECLARED, and the delimiter is a slash
@@ -433,9 +433,9 @@ Notes worth keeping:
   read-only: it has no cursor and stores nothing, which is why it can be run twice with no
   consequence. If automation is ever rebuilt on it, reuse the old dedupe key shape
   (`trigger + item + commit`) rather than inventing one.
-- Testing the CLI from a cwd inside a workspace runs THAT workspace's `git_modules/dreamteamer`,
-  not the checkout you are editing (self-shadowing, decision 24). Test from outside, or import
-  `src/cli.js` directly.
+- Testing the CLI with `npx dt` from a cwd inside a workspace runs THAT workspace's installed engine,
+  not the checkout you are editing. Run this checkout's `bin/dreamteamer.js`, or import `src/cli.ts`
+  directly.
 
 ## how to keep it closed
 

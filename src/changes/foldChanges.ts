@@ -6,8 +6,7 @@ import type { ChangeKind, RecordChange } from "./types.ts"
  * twice only as a MOVE (a relocate, a placed record re-parented: deleted at one path, created at
  * another), which is one update at the live path. Across the halves the net change wins: created
  * then deleted never existed at either end and is dropped; created then edited is still created;
- * deleted then re-created is an update. The SAME ref in two repos is two records — a layer's copy
- * is not the workspace's.
+ * deleted then re-created is an update. The SAME ref in two repos is two records.
  */
 export function foldChanges<T extends RecordChange>(before: T[], after: T[]): (T & { committed: boolean })[] {
   const key = (c: T): string => `${c.repo}\0${c.ref}`
@@ -35,7 +34,7 @@ export function foldChanges<T extends RecordChange>(before: T[], after: T[]): (T
     if (change) out.set(k, { ...c, change, committed: false })
     else out.delete(k)
   }
-  const order = (c: T): string[] => [c.collection, c.layer ?? "", c.id]
+  const order = (c: T): string[] => [c.collection, c.id]
   return [...out.values()].sort((a, b) => {
     const [x, y] = [order(a), order(b)]
     for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1

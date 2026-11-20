@@ -3,14 +3,12 @@
 // exports manifest, `dreamteamer-exports.json`, and delete the stub (cr-dt-004). Run it once per workspace
 // that holds or reads stubs, on engine 0.45.0, right after `dt compile`:
 //
-//   node node_modules/dreamteamer/dist/scripts/migrate-stubs.js --root <workspace> [--layers] [--dry-run]
+//   node node_modules/dreamteamer/dist/scripts/migrate-stubs.js --root <workspace> [--dry-run]
 //
-// --layers also migrates every installed record layer's stubs, from this workspace's view — so an entry
-// gets the live label and holder of a record this workspace reads. Per stub: an entry when a record of its
-// repo names the id, or when this workspace does not read that repo completely (it cannot know, so it never
-// deletes without an entry); label and holder from a non-stub claimant of the id in any root read here,
-// else the stub's own title and no holder; then the repo's manifest is regenerated exactly as `dt exports`
-// would, and ONE commit per repo holds the manifest and the deleted stubs. --dry-run writes nothing.
+// Per stub: an entry when a record of the workspace names the id, or when this workspace does not read its
+// data completely (it cannot know, so it never deletes without an entry); the label is the stub's own title,
+// with no holder; then the manifest is regenerated exactly as `dt exports` would, and ONE commit holds the
+// manifest and the deleted stubs. --dry-run writes nothing.
 import { execFileSync } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
@@ -45,17 +43,16 @@ const isStubText = (text: string): boolean =>
 const title = (d: Descriptor, fields: Record<string, unknown>, id: string): string =>
   String(fields[/\{\{\s*([A-Za-z_][\w]*)/.exec(recordTitleOf(d))?.[1]] ?? id)
 
-/** Every record file of `repo` (null: the workspace), per collection: `[{ d, id, file, stub }]`. */
-function filesOf(store: StoreT, repo: string | null): { d: Descriptor; id: string; file: string; stub: boolean }[] {
+/** Every record file of the workspace, per collection: `[{ d, id, file, stub }]`. */
+function filesOf(store: StoreT): { d: Descriptor; id: string; file: string; stub: boolean }[] {
   const out: ReturnType<typeof filesOf> = []
   for (const d of store.descriptors.values()) {
     if (storageOf(d).runtime || storageOf(d).unavailable || storageOf(d).format === "binary") continue
-    for (const r of store.rootsOf(d)) {
-      if ((r.layer ?? null) !== repo || !fs.existsSync(r.abs)) continue
-      for (const file of walk(r.abs)) {
-        const id = idFromRecordPath(d, path.relative(r.abs, file).split(path.sep).join("/"))
-        if (id !== null) out.push({ d, id, file, stub: isStubText(fs.readFileSync(file, "utf8")) })
-      }
+    const dir = store.dir(d)
+    if (!fs.existsSync(dir)) continue
+    for (const file of walk(dir)) {
+      const id = idFromRecordPath(d, path.relative(dir, file).split(path.sep).join("/"))
+      if (id !== null) out.push({ d, id, file, stub: isStubText(fs.readFileSync(file, "utf8")) })
     }
   }
   return out
@@ -63,11 +60,7 @@ function filesOf(store: StoreT, repo: string | null): { d: Descriptor; id: strin
 
 export function migrate(
   root: string,
-  {
-    layers = false,
-    dryRun = false,
-    log = console.log,
-  }: { layers?: boolean; dryRun?: boolean; log?: (line: string) => void } = {}
+  { dryRun = false, log = console.log }: { dryRun?: boolean; log?: (line: string) => void } = {}
 ) {
   const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"))
   const store = new Store({ root, pkg })
@@ -76,19 +69,12 @@ export function migrate(
     root,
     descriptors: store.descriptors,
     own: facts.own,
-    layers: facts.layers,
     dataPath: facts.data,
   })
-  const repos = [
-    null,
-    ...(layers ? (facts.layers ?? []).filter(l => fs.existsSync(path.join(root, l.root))).map(l => l.name) : []),
-  ]
-  const all = new Map(repos.map(repo => [repo, filesOf(store, repo)]))
   const report = []
-  for (const repo of repos) {
-    const files = all.get(repo)
-    const stubs = files.filter(f => f.stub)
-    if (!stubs.length) continue
+  const files = filesOf(store)
+  const stubs = files.filter(f => f.stub)
+  if (stubs.length) {
     const own = files
       .filter(f => !f.stub)
       .map(f => ({
@@ -98,8 +84,8 @@ export function migrate(
         fields: parseRecord(f.file, f.d, bodyFieldOf(f.d)),
       }))
     const named = outsideRefs({ records: own, held: () => false, resolve: () => null, namespaces: store.namespaces })
-    const complete = ctx.complete(repo)
-    const entries = readExports(ctx.rootOf(repo)) ?? {}
+    const complete = ctx.complete()
+    const entries = readExports(root) ?? {}
     const rows = []
     for (const s of stubs) {
       const ref = `${s.d.name}/${s.id}`
@@ -108,52 +94,47 @@ export function migrate(
         rows.push({ ref, fate: "deleted — nothing in its repo references it" })
         continue
       }
-      const real = [...all.values()].flat().find(f => !f.stub && f.d.name === s.d.name && f.id === s.id)
-      const e = real
-        ? {
-            label: title(real.d, parseRecord(real.file, real.d, bodyFieldOf(real.d)), s.id),
-            from: ctx.packageOf(store.layerOfFile(real.d, real.file)?.layer ?? null),
-          }
-        : { label: title(s.d, parseRecord(s.file, s.d, bodyFieldOf(s.d)), s.id) }
+      const e = { label: title(s.d, parseRecord(s.file, s.d, bodyFieldOf(s.d)), s.id) }
       ;(entries[s.d.name] ??= {})[s.id] = entries[s.d.name][s.id] ?? e
       rows.push({
         ref,
         fate: `entry ${JSON.stringify(e)}${referrers.length ? ` — named by ${referrers.slice(0, 3).join(", ")}${referrers.length > 3 ? ` +${referrers.length - 3}` : ""}` : " — kept: this workspace does not read the repo completely"}`,
       })
     }
-    const dir = ctx.rootOf(repo)
+    const dir = root
     log(
-      `${repo ?? "this workspace"} · ${stubs.length} stub${stubs.length === 1 ? "" : "s"}${dryRun ? " (dry run — nothing written)" : ""}`
+      `this workspace · ${stubs.length} stub${stubs.length === 1 ? "" : "s"}${dryRun ? " (dry run — nothing written)" : ""}`
     )
     for (const r of rows) log(`    ${r.ref} — ${r.fate}`)
-    report.push({ repo, rows })
-    if (dryRun) continue
-    for (const s of stubs) fs.rmSync(s.file)
-    fs.writeFileSync(path.join(dir, EXPORTS_FILE), serializeExports(entries) ?? "{}\n")
-    const plan = planExports(new Store({ root, pkg }), repo) // as dt exports would, on the migrated tree
-    if (plan.text === null) fs.rmSync(plan.file, { force: true })
-    else fs.writeFileSync(plan.file, plan.text)
-    const git = (args: string[]): string =>
-      execFileSync("git", args, { cwd: dir, stdio: ["ignore", "pipe", "pipe"] })
-        .toString()
-        .trim()
-    // the manifest only when there is one or git tracks one: all-unreferenced stubs leave none to add
-    const tracked = git(["ls-files", "--", EXPORTS_FILE]) !== ""
-    const paths = [
-      ...(tracked || fs.existsSync(path.join(dir, EXPORTS_FILE)) ? [EXPORTS_FILE] : []),
-      ...stubs.map(s => path.relative(dir, s.file)),
-    ]
-    git(["add", "-A", "--", ...paths])
-    git([
-      "commit",
-      "--only",
-      "-q",
-      "-m",
-      `dreamteamer: migrate ${stubs.length} stub record(s) to ${EXPORTS_FILE}`,
-      "--",
-      ...paths,
-    ])
-    log(`    ✔ committed ${git(["rev-parse", "--short", "HEAD"])}`)
+    report.push({ repo: null as string | null, rows })
+    if (!dryRun) {
+      for (const s of stubs) fs.rmSync(s.file)
+      fs.writeFileSync(path.join(dir, EXPORTS_FILE), serializeExports(entries) ?? "{}\n")
+      const plan = planExports(new Store({ root, pkg })) // as dt exports would, on the migrated tree
+      if (plan.text === null) fs.rmSync(plan.file, { force: true })
+      else fs.writeFileSync(plan.file, plan.text)
+      const git = (args: string[]): string =>
+        execFileSync("git", args, { cwd: dir, stdio: ["ignore", "pipe", "pipe"] })
+          .toString()
+          .trim()
+      // the manifest only when there is one or git tracks one: all-unreferenced stubs leave none to add
+      const tracked = git(["ls-files", "--", EXPORTS_FILE]) !== ""
+      const paths = [
+        ...(tracked || fs.existsSync(path.join(dir, EXPORTS_FILE)) ? [EXPORTS_FILE] : []),
+        ...stubs.map(s => path.relative(dir, s.file)),
+      ]
+      git(["add", "-A", "--", ...paths])
+      git([
+        "commit",
+        "--only",
+        "-q",
+        "-m",
+        `dreamteamer: migrate ${stubs.length} stub record(s) to ${EXPORTS_FILE}`,
+        "--",
+        ...paths,
+      ])
+      log(`    ✔ committed ${git(["rev-parse", "--short", "HEAD"])}`)
+    }
   }
   if (!report.length) log("no stub records found")
   return report
@@ -164,7 +145,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const at = argv.indexOf("--root")
   try {
     migrate(path.resolve(at >= 0 ? argv[at + 1] : "."), {
-      layers: argv.includes("--layers"),
       dryRun: argv.includes("--dry-run"),
     })
   } catch (e) {

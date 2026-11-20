@@ -84,8 +84,8 @@ export function recordsCommand(
     }
     case "get": {
       const id = need(pos, 0, "id")
-      // an id no root holds that an exports manifest vouches for (cr-dt-004): named, and still exit 1
-      const ext = store.external(collection, id, { referrer: flags.referrer as string })
+      // an id no record holds that the exports manifest vouches for (cr-dt-004): named, and still exit 1
+      const ext = store.external(collection, id)
       if (ext) {
         if (flags.json) emit(JSON.stringify({ $external: { collection, id, ...ext } }, null, 2))
         console.error(

@@ -9,7 +9,6 @@ import { KINDS } from "../compile/consts.ts"
 import { appendMissing } from "../lib/appendMissing.ts"
 
 const GITIGNORE = `node_modules/
-git_modules/
 .worktrees/
 .dreamteamer/
 .claude/

@@ -48,12 +48,8 @@ export interface Snapshot {
 /**
  * ONE COMMIT PER REPO, in the repo that actually holds each source.
  *
- * ⚠ THE DEFECT THIS FIXES WAS SILENT ABOUT ITS OWN CAUSE. Every schema commit ran at the WORKSPACE
- * root, and `git_modules/` is gitignored there — so `git add -- git_modules/hr/collections/…` added
- * nothing, the pathspec-scoped `git commit` had nothing to record and failed, and the gate rolled
- * the whole op back with a message naming git. A schema write into a git-shape module was therefore
- * impossible, and the reason was invisible: the source compiled, the field was live for one
- * instant, and then the file was restored.
+ * A module under modules/<id> may be a repo of its own; a schema write into it must commit THERE,
+ * since the workspace root's pathspec-scoped commit would record nothing and roll the op back.
  *
  * `repoRootOf` (compile.js, there since `owns_data` needed it) answers "which repo holds this path"
  * — nearest `.git` at or above it, workspace-relative, `.` for the workspace itself. Grouping by it
@@ -82,7 +78,6 @@ export interface ModuleSource {
   name: string
   root: string
   channel: string
-  layer?: string
 }
 
 /**
