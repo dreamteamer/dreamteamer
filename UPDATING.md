@@ -22,7 +22,7 @@ then `npx dreamteamer compile` and `npx dreamteamer check`.
 
 ---
 
-## Unreleased — git modules and record layers are removed
+## 0.51.0 — git modules and record layers are removed
 
 `dreamteamer.git_modules` was the one way to bring a module in from a git repository, and the way a
 workspace read another workspace's records (a *record layer*). Both are gone: modules arrive under
@@ -47,7 +47,7 @@ workspace read another workspace's records (a *record layer*). Both are gone: mo
   `Store.layered` and `Store.layerOfFile` are removed; `Store.external`, `Store.vouched`,
   `Store.checkRefs` and `Store.validate` lose their layer argument; a module's `channel` is `inline | npm`.
 
-## Unreleased — the engine is TypeScript
+## 0.50.0 — the engine is TypeScript
 
 Nothing to do but `dt compile` for a workspace that installs the engine from npm: the package is the
 compiled `dist/`, and it still runs on Node 20. Two things move:
