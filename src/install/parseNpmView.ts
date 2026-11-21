@@ -1,6 +1,6 @@
-import type { PackageJson } from "../../types.ts"
-import type { SpecEntry } from "../types.ts"
-import { refuse } from "../versions.ts"
+import type { PackageJson } from "../types.ts"
+import type { SpecEntry } from "./types.ts"
+import { refuse } from "./versions.ts"
 
 /** What `npm view <spec>` is asked for: the manifest fields install and update read. */
 export const NPM_VIEW_FIELDS = ["name", "version", "dreamteamer", "peerDependencies", "dependencies", "--json"]

@@ -6,7 +6,7 @@ import { childEnv } from "../lib/childEnv.ts"
 import { resolveNpm } from "../lib/npm/resolveNpm.ts"
 import { installedModules } from "../install/installedModules.ts"
 import { readSpecManifest } from "../install/readSpecManifest.ts"
-import { NPM_VIEW_FIELDS, parseNpmView } from "../install/lib/parseNpmView.ts"
+import { NPM_VIEW_FIELDS, parseNpmView } from "../install/parseNpmView.ts"
 import { compareVersions } from "../install/versions.ts"
 import type { SpecEntry } from "../install/types.ts"
 
