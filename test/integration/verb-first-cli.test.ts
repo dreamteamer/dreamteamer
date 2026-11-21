@@ -458,7 +458,7 @@ describe("workspace verbs keep their spellings", () => {
     // never returns, so `dt(verb)` — a spawnSync — waits forever. This hung a release for six hours
     // when `start` was a core verb: the suite passed on a developer machine because something already
     // held the port, and hung on a CI runner where it was free. The server is an extension now
-    // (`dt serve`, @dreamteamer/http) and this fixture installs none — but the guard stays, because
+    // and this fixture installs none — but the guard stays, because
     // the day a test fixture does install one this loop would run it.
     const SERVES_FOREVER = new Set(["start", "serve"])
     for (const verb of documented) {

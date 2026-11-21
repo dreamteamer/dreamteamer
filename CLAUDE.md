@@ -372,9 +372,21 @@ general is unbounded in a way the pressure on a workspace compiler is not.
 
 ## IMPORTANT — engine/UI split
 
-**dreamteamer is the ENGINE. [dreamteamer-vscode](https://github.com/dreamteamer/dreamteamer-vscode)
-is the UI.** All functionality lives here; the extension is a surface over it, never a second
+**dreamteamer is the ENGINE. The desktop app (dreamteamer-app) is the surface for people** — it loads
+this engine's public API in-process, one Electron utility process per workspace, and owns the route
+protocol between its windows and that process. `dt web` and `@dreamteamer/protocol` were retired in
+0.52.0. [dreamteamer-vscode](https://github.com/dreamteamer/dreamteamer-vscode) is a second, older
+surface held to the same rule. All functionality lives here; a surface is never a second
 implementation.
+
+**The engine has two APIs over the same code: the `dt` CLI, which agents use, and `src/api.ts`, which
+the app loads.** Which side owns a fact is decided by one question — must the answer be the same for
+every actor (a person in the app, an agent running `dt`, CI)? Then the engine owns it: anything that
+writes to the repo, and any fact an agent also acts on through `dt` — pending records
+(`commitPending(store, { dryRun: true })`), unpushed commits (`aheadCount`), the module enumeration
+(`moduleRows`), history. The app keeps only what the engine never reads: last-modified and author in a
+list, the activity feed, source marks, images, remote access, windows and transport. A fact
+implemented on both sides is a design error.
 
 **The test:** *anything that can be done in the VS Code extension can be done in a Claude Code (or
 any supported coding-agent) session.* Concretely — every extension gesture must map to a
@@ -389,8 +401,8 @@ Corollaries:
 - Loading the engine in-process (what `dreamteamer-vscode/src/engine.ts` does) satisfies "one
   implementation" but **not** the test — an in-process-only export is still UI-exclusive until the
   CLI exposes it.
-- The HTTP extension (`@dreamteamer/http`) and the editor's `src/api.ts` are thin skins over these
-  functions. If a route exists with no CLI equivalent, that's a gap, not a design.
+- The app's protocol handler and the editor's `src/api.ts` are thin skins over these functions. If a
+  route exists with no CLI equivalent, that's a gap, not a design.
 
 ## parity status (closed 2026-07-27)
 

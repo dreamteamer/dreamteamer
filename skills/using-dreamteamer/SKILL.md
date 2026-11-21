@@ -74,7 +74,7 @@ dispatch, so it cannot drift):
 - format descriptor sources (opt-in; block style, canonical key order, through the compile gate) — `fmt`
 - an EXTENSION (a module under `modules/` or a direct dependency, declaring `dreamteamer.extension`) adds verbs of
   its own, and `dt help` lists them under its name; each ships the skill that teaches it. A verb core
-  does not know (`dt prove` · `dt land` · `dt worktree` · `dt serve` · `dt notebooklm`) belongs to an
+  does not know (`dt prove` · `dt land` · `dt worktree` · `dt notebooklm`) belongs to an
   extension — see `references/extensions.md`.
 
 don't learn syntax from prose, this skill included: prose drifts, and `help` ships in

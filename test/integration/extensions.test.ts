@@ -142,8 +142,6 @@ describe("an extension's command runs in-process, handed THIS workspace and THIS
       ["prove", "proofs"],
       ["land", "worktrees"],
       ["worktree", "worktrees"],
-      ["serve", "web"],
-      ["web", "web"],
       ["notebooklm", "notebooklm"],
     ]) {
       const r = ws.dt(verb, "x")
@@ -152,6 +150,12 @@ describe("an extension's command runs in-process, handed THIS workspace and THIS
         r.stderr,
         `✖ \`dt ${verb}\` comes from an extension this workspace does not have — install it:\n    dt install @dreamteamer/${pkg}\n`
       )
+    }
+    for (const verb of ["web", "serve"]) {
+      const r = ws.dt(verb, "x")
+      assert.equal(r.code, 2, verb)
+      assert.match(r.stderr, new RegExp(`\`dt ${verb}\` is retired since 0\\.52\\.0 — the dreamteamer desktop app`))
+      assert.doesNotMatch(r.stderr, /dt install/, "no package serves it any more")
     }
     for (const verb of ["start", "stop", "open", "export", "import"]) {
       const r = ws.dt(verb, "x")
