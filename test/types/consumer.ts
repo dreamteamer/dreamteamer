@@ -92,6 +92,11 @@ async function surface() {
   accept<0 | 1 | 2>(dt.check(ws))
   const commits = dt.commitPending(store, { dryRun: true })
   accept<string | null | undefined>(commits[0].sha) // null on a dry run
+  accept<number | null>(dt.aheadCount("/w"))
+  const mods: dt.ModuleRecordRow[] = dt.moduleRows(store)
+  accept<string[] | undefined>(mods[0].fields.namespaces)
+  // @ts-expect-error — a module row's id is a string
+  accept<number>(mods[0].id)
   accept<number>(await dt.installCommand(ws, ["install"]))
   accept<{ id: string }[]>(dt.sortRows([{ id: "a" }], "-id"))
   accept<(ref: string) => Fields | null>(dt.recordResolver(store))

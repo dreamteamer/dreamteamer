@@ -13,7 +13,8 @@ import { readManifest } from "../runtime/runtime.ts"
 import type { DreamteamerBlock, PackageJson, Workspace } from "../types.ts"
 import { compile, kindDir } from "../compile/compile.ts"
 import { moduleRows } from "../workspace/moduleRows.ts"
-import type { ModuleRecordRow, SourceDoc } from "../workspace/types.ts"
+import type { ModuleRecordRow } from "../types.ts"
+import type { SourceDoc } from "../workspace/types.ts"
 import { ENTITY_SHAPE, IN_NODE_MODULES } from "./consts.ts"
 /**
  * The compile half of the gate, under the same lock, with no source write and no commit — for a

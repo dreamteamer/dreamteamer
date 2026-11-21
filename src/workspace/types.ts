@@ -5,27 +5,6 @@ import type { AuthoredDescriptor } from "../types.ts"
  */
 export type SourceDoc = Partial<AuthoredDescriptor>
 
-/** A `modules` record's fields (collections/modules.collection.yaml) — projected by compile from package.json. */
-export interface ModuleFields {
-  name?: string
-  title?: string
-  description?: string
-  namespaces?: string[]
-  location?: string
-  path?: string
-  bin?: string[]
-  owns_data?: boolean
-  dependencies?: string[]
-  peer_collections?: string[]
-  collections?: string[]
-  [k: string]: unknown
-}
-
-export interface ModuleRecordRow {
-  id: string
-  fields: ModuleFields
-}
-
 /** What a source write's `after` hook adds to the gate: more files in the commit, and how to put them back. */
 export interface AfterResult {
   files?: string[]

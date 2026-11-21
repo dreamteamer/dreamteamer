@@ -164,6 +164,28 @@ export interface Manifest {
   [k: string]: unknown
 }
 
+/** A `modules` record's fields (collections/modules.collection.yaml) — projected by compile from package.json. */
+export interface ModuleFields {
+  name?: string
+  title?: string
+  description?: string
+  namespaces?: string[]
+  location?: string
+  path?: string
+  bin?: string[]
+  owns_data?: boolean
+  dependencies?: string[]
+  peer_collections?: string[]
+  collections?: string[]
+  [k: string]: unknown
+}
+
+/** One `modules` record as `moduleRows` returns it — the compiled projection of one module. */
+export interface ModuleRecordRow {
+  id: string
+  fields: ModuleFields
+}
+
 /** The display contract (descriptor v2, design §4.3): what every surface draws from. */
 export interface PresentationChoice {
   label: string
