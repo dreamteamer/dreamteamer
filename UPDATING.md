@@ -32,7 +32,12 @@ Nothing to do but `dt compile`. Two new ways to run `dt update`, for a person in
 - **`dt update --all`** moves every outdated pin: the engine first, then each module by the engine just installed,
   each step re-pinned exactly, compiled and committed as `dt update <name>` does. `--from`, `--allow` and
   `--no-commit` pass through.
-- **API, additions only:** `updateCheck(ws, { from? })` and its row type `UpdateCheckRow`.
+- **`dt install` now also installs drifted packages:** a declared package installed at another version than
+  `package-lock.json` (else an exact `package.json` pin) names — what a teammate's pushed upgrade looks like after a
+  pull — is installed again, like a missing one. `dt status` shows them in a `drift:` block, `dt status --json` as
+  `drift`. Before, `dt install` reported such a checkout ready and it ran on the old packages.
+- **API, additions only:** `updateCheck(ws, { from? })`, `installDrift(ws)` and their row types `UpdateCheckRow` and
+  `InstallDriftRow`.
 - **The desktop app needs 0.53.0 or later**, and offers to run `dt update --all` on a workspace below it.
 
 ## 0.52.0 — `dt web` is retired; the app reads repo facts from the engine

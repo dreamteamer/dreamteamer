@@ -12,14 +12,25 @@ export function planInstall(state: CheckoutState, opts: { linkEnv?: boolean } = 
   // LINK used to read as ready while an installed extension was missing — so
   // npm never ran, and compile then refused the extension's source folder as an unknown kind.
   const missing = state.missingDeps ?? []
+  // ⚠ AND every one installed at another version than the checkout pins. A teammate's pushed upgrade moves the pins
+  // while node_modules stays behind; "present" alone read that checkout as ready, and it ran on the old packages.
+  const drift = state.drift ?? []
+  const why = [
+    ...(missing.length ? [`${missing.join(", ")} missing`] : []),
+    ...drift.map(d => `${d.name} ${d.installed} installed, ${d.pinned} pinned`),
+  ]
   steps.push(
-    missing.length
+    why.length
       ? {
           id: "dependencies",
-          label: `dependencies: ${missing.join(", ")} missing — npm ci --prefer-offline (package-lock.json) or npm install; a linked one is kept`,
+          label: `dependencies: ${why.join("; ")} — npm ci --prefer-offline (package-lock.json) or npm install; a linked one is kept`,
           state: "todo",
         }
-      : { id: "dependencies", label: "dependencies: every declared package present", state: "already" }
+      : {
+          id: "dependencies",
+          label: "dependencies: every declared package present, at its pinned version",
+          state: "already",
+        }
   )
   if (c.kind === "primary") steps.push({ id: "env", label: ".env: primary checkout — nothing to link", state: "skip" })
   else if (state.hasEnv && !state.envIsLink)

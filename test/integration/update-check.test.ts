@@ -9,7 +9,7 @@ import os from "node:os"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
 import * as dt from "../../src/api.ts"
-import { workspace, git } from "../helpers/ws.ts"
+import { workspace, git, ENGINE_ROOT } from "../helpers/ws.ts"
 import { openWorkspace } from "../../src/openWorkspace.ts"
 
 const NAME = "@up/a"
@@ -100,5 +100,47 @@ describe("dt update --all", () => {
     assert.equal(r.code, 0, r.stderr)
     assert.match(r.stdout, /every package is at its latest release/)
     assert.equal(git(ws.root, ["rev-parse", "HEAD"]), head)
+  })
+})
+
+describe("drift: a pulled upgrade, pins moved and node_modules not", () => {
+  /** A checkout whose lockfile and package.json pin @up/a 1.1.0 while node_modules holds 1.0.0 — what a teammate's
+   *  pushed `dt update` looks like after a pull. The engine is a file: dependency so `npm ci` needs no registry. */
+  function pulled() {
+    const ws = installed()
+    const pkgFile = path.join(ws.root, "package.json")
+    const pkg = JSON.parse(fs.readFileSync(pkgFile, "utf8"))
+    pkg.dependencies = { ...pkg.dependencies, dreamteamer: `file:${ENGINE_ROOT}` }
+    fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, "\t") + "\n")
+    const tgz = path.join(
+      both,
+      fs.readdirSync(both).find(f => f.endsWith("1.1.0.tgz"))!
+    )
+    const r = spawnSync("npm", ["install", "--save-exact", "--package-lock-only", "--no-audit", "--no-fund", tgz], {
+      cwd: ws.root,
+      encoding: "utf8",
+    })
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(versionOf(ws.root), "1.0.0", "node_modules is still the old version")
+    return ws
+  }
+
+  test("dt status --json reports the package installed at another version than pinned", () => {
+    const ws = pulled()
+    const r = ws.dt!("status", "--json")
+    assert.equal(r.code, 0, r.stderr)
+    assert.deepEqual(JSON.parse(r.stdout).drift, [{ name: NAME, pinned: "1.1.0", installed: "1.0.0" }])
+    assert.match(ws.dt!("status").stdout, /drift:\n {2}@up\/a\s+1\.0\.0 installed, 1\.1\.0 pinned — dt install/)
+  })
+
+  test("dt install brings node_modules to the pins, and the drift is gone", () => {
+    const ws = pulled()
+    const r = ws.dt!("install", "--no-input")
+    assert.equal(r.code, 0, r.stdout + r.stderr)
+    assert.equal(versionOf(ws.root), "1.1.0")
+    assert.deepEqual(
+      dt.installDrift({ root: ws.root, pkg: JSON.parse(fs.readFileSync(path.join(ws.root, "package.json"), "utf8")) }),
+      []
+    )
   })
 })

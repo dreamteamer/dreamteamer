@@ -96,6 +96,8 @@ async function surface() {
   const updates: dt.UpdateCheckRow[] = await dt.updateCheck(ws, { from: "/tars" })
   accept<"engine" | "module">(updates[0].kind)
   accept<string | null>(updates[0].latest)
+  const drift: dt.InstallDriftRow[] = dt.installDrift(ws)
+  accept<string>(drift[0].pinned)
   // @ts-expect-error — outdated is a boolean, never a version
   accept<string>(updates[0].outdated)
   const mods: dt.ModuleRecordRow[] = dt.moduleRows(store)

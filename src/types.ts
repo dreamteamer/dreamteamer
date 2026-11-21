@@ -201,6 +201,15 @@ export interface UpdateCheckRow {
   error?: string
 }
 
+/** A declared package whose installed version is not the one the checkout pins — what `dt install` makes match. */
+export interface InstallDriftRow {
+  name: string
+  /** What package-lock.json names (else an exact package.json pin). */
+  pinned: string
+  /** What node_modules holds. */
+  installed: string
+}
+
 /** The display contract (descriptor v2, design §4.3): what every surface draws from. */
 export interface PresentationChoice {
   label: string

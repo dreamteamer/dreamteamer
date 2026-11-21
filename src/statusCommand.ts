@@ -14,6 +14,7 @@ import { discoverModules } from "./workspace/discoverModules.ts"
 import { listRepos } from "./repos/listRepos.ts"
 import { staleness } from "./compile/staleness.ts"
 import { presetMembers } from "./install/presetMembers.ts"
+import { installDrift } from "./install/installDrift.ts"
 
 export function statusCommand(ws: Workspace, rest: string[]): number {
   const s = staleness(ws.root)
@@ -36,6 +37,8 @@ export function statusCommand(ws: Workspace, rest: string[]): number {
           compiled: s.manifest.compiled,
           stale: s.stale,
           modules: mods.map(modEntry),
+          // installed at another version than the checkout pins — `dt install` makes them match
+          drift: installDrift(ws),
           setup: statusLines(ws),
         },
         null,
@@ -93,6 +96,13 @@ export function statusCommand(ws: Workspace, rest: string[]): number {
         if (x.installed && x.installed !== x.pinned)
           console.log(`    ${x.name} ${x.installed} (preset ${p.id} names ${x.pinned})`)
     }
+  }
+  // a pulled upgrade: the pins moved, node_modules did not
+  const drift = installDrift(ws)
+  if (drift.length) {
+    console.log("drift:")
+    for (const d of drift)
+      console.log(`  ${d.name.padEnd(20)} ${d.installed} installed, ${d.pinned} pinned — dt install`)
   }
   // env-pointed roots (`storage.path: ${env:NAME}/…`), rendered per machine by compile: the
   // folder a record of each lands in on THIS machine, or why it cannot. Wrapped like the
