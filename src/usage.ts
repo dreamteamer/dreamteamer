@@ -214,6 +214,9 @@ workspace verbs:
               Setup flags as for \`setup\`: [--input <id>=<value>]… [--allow <kind>]… [--no-input];
               [--no-commit] [--json]
               Exit 0 done · 1 refused or failed (nothing half-written) · 2 usage · 3 input missing
+  update      --check [--json]               list the engine and every npm module: installed → latest
+  update      --all                           move every outdated pin forward: the engine first, then each
+              module, by the engine just installed; each step as below
   update      <name>[@<version>] | --engine   move ONE npm pin forward on purpose: to the latest
               release (or the named version), re-pinned exactly, closure-checked as install is,
               compiled, committed; a module preset moves its installed members to its new pins.

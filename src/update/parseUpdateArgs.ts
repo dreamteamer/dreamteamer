@@ -1,9 +1,11 @@
-/** The `dt update` argv: a target (`name`, `name@version`), `--engine`, `--allow downgrade|nav-reset`, `--from <dir>`, `--no-commit`. */
+/** The `dt update` argv: a target (`name`, `name@version`), `--engine`, `--check`, `--all`, `--allow downgrade|nav-reset`, `--from <dir>`, `--no-commit`. */
 export function parseUpdateArgs(argv: string[]) {
   const out = {
     name: null as string | null,
     version: null as string | null,
     engine: argv.includes("--engine"),
+    check: argv.includes("--check"),
+    all: argv.includes("--all"),
     allow: new Set<string>(),
     from: null as string | null,
     noCommit: argv.includes("--no-commit"),

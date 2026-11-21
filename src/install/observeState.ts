@@ -1,6 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { declaredDeps } from "./declaredDeps.ts"
+import { installDrift } from "./installDrift.ts"
 import { resolves } from "./resolves.ts"
 import type { PackageJson, Workspace } from "../types.ts"
 import { describeCheckout } from "../lib/git/describeCheckout.ts"
@@ -62,6 +63,8 @@ export function observeState(ws: Workspace) {
   return {
     checkout,
     missingDeps: declaredDeps(ws).filter(d => !resolves(here(path.join("node_modules", d)))),
+    // installed, but not the version the checkout pins — a teammate's pushed upgrade after a pull
+    drift: installDrift(ws),
     hasEnv: resolves(here(".env")),
     envIsLink: isLink(here(".env")),
     primaryHasEnv: resolves(there(".env")),

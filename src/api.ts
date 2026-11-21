@@ -32,6 +32,8 @@ export type {
   NavWarning,
   ModuleFields,
   ModuleRecordRow,
+  UpdateCheckRow,
+  InstallDriftRow,
 } from "./types.ts"
 
 import { openWorkspace } from "./openWorkspace.ts"
@@ -119,6 +121,10 @@ export { moduleRows } from "./workspace/moduleRows.ts"
 // commits a repo has that its upstream does not — the count `dt commit` reports after a write; the
 // pending half of the same picture is `commitPending(store, { dryRun: true })`
 export { aheadCount } from "./workspace/lib/aheadCount.ts"
+// what `dt update --all` would move: the engine and each npm module, installed → latest (`dt update --check`)
+export { updateCheck } from "./update/updateCheck.ts"
+// declared packages installed at another version than the checkout pins (a pulled upgrade) — `dt install` fixes them
+export { installDrift } from "./install/installDrift.ts"
 export { KINDS } from "./compile/consts.ts"
 export { MANAGED_BLOCKS } from "./doctor/consts.ts"
 export { createCollection } from "./collections/createCollection.ts"

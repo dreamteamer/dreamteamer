@@ -93,6 +93,13 @@ async function surface() {
   const commits = dt.commitPending(store, { dryRun: true })
   accept<string | null | undefined>(commits[0].sha) // null on a dry run
   accept<number | null>(dt.aheadCount("/w"))
+  const updates: dt.UpdateCheckRow[] = await dt.updateCheck(ws, { from: "/tars" })
+  accept<"engine" | "module">(updates[0].kind)
+  accept<string | null>(updates[0].latest)
+  const drift: dt.InstallDriftRow[] = dt.installDrift(ws)
+  accept<string>(drift[0].pinned)
+  // @ts-expect-error — outdated is a boolean, never a version
+  accept<string>(updates[0].outdated)
   const mods: dt.ModuleRecordRow[] = dt.moduleRows(store)
   accept<string[] | undefined>(mods[0].fields.namespaces)
   // @ts-expect-error — a module row's id is a string

@@ -38,7 +38,7 @@ export const WORKSPACE_FLAGS: Record<string, string[]> = {
     "allow",
     "no-input",
   ],
-  update: ["engine", "allow", "from", "no-commit"],
+  update: ["engine", "check", "all", "json", "allow", "from", "no-commit"],
   install: [
     "dry-run",
     "json",
