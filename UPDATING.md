@@ -22,6 +22,22 @@ then `npx dreamteamer compile` and `npx dreamteamer check`.
 
 ---
 
+## 0.52.0 — `dt web` is retired; the app reads repo facts from the engine
+
+Nothing to do but `dt compile`. The desktop app is now the one surface for people, and the engine has
+two APIs over the same code: the `dt` CLI for agents and the exported API the app loads in-process.
+
+- **`dt web` and `dt serve` are retired.** Typed without an extension that answers them, each exits 2
+  and names the desktop app instead of printing an install line. `@dreamteamer/web`, `@dreamteamer/http`,
+  `@dreamteamer/protocol`, `@dreamteamer/ui` and `@dreamteamer/ui-legacy` get no new releases; versions
+  already on npm keep working, so `npx -p @dreamteamer/protocol@0.3 dt-nav migrate` still migrates
+  old nav settings.
+- **API, additions only:** `aheadCount(repoRoot)` — the commits a repo has that its upstream does not,
+  as `dt commit` reports them — and `moduleRows(store)` — every compiled module record as `{ id, fields }`,
+  the enumeration `--module` validation reads — with its types `ModuleRecordRow` and `ModuleFields`.
+  Pending records were already public: `commitPending(store, { dryRun: true })` is what `dt status` and
+  `dt changes` print from. The app needs 0.52.0 or later.
+
 ## 0.51.0 — git modules and record layers are removed
 
 `dreamteamer.git_modules` was the one way to bring a module in from a git repository, and the way a
