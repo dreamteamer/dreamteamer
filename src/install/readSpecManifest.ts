@@ -1,10 +1,10 @@
 import path from "node:path"
 import fs from "node:fs"
 import { spawnSync } from "node:child_process"
-import type { PackageJson } from "../types.ts"
 import { childEnv } from "../lib/childEnv.ts"
 import { indexFolder } from "./indexFolder.ts"
 import { readTarballManifest } from "./lib/readTarballManifest.ts"
+import { NPM_VIEW_FIELDS, parseNpmView } from "./lib/parseNpmView.ts"
 import { resolveNpm } from "../lib/npm/resolveNpm.ts"
 import type { FolderIndex, SpecEntry } from "./types.ts"
 import { isPathSpec, refuse, splitSpec } from "./versions.ts"
@@ -44,31 +44,11 @@ export function readSpecManifest(
     return { kind: "tarball", spec: pick.file, manifest: pick.manifest }
   }
   if (!npm) throw refuse("cannot read the registry — node found, npm not on PATH")
-  const r = spawnSync(
-    npm,
-    ["view", spec, "name", "version", "dreamteamer", "peerDependencies", "dependencies", "--json"],
-    { encoding: "utf8", cwd, env: childEnv(), timeout: 120_000 }
-  )
-  if (r.status !== 0)
-    throw refuse(
-      `npm view ${spec} failed${
-        r.stderr
-          ? ` — ${
-              r.stderr
-                .trim()
-                .split("\n")
-                .filter(l => /E404|ETARGET|ENOTFOUND|EAI_AGAIN/.test(l))[0] ?? r.stderr.trim().split("\n")[0]
-            }`
-          : ""
-      }`
-    )
-  let out: PackageJson | PackageJson[]
-  try {
-    out = JSON.parse(r.stdout)
-  } catch {
-    throw refuse(`npm view ${spec}: unreadable answer`)
-  }
-  const manifest = Array.isArray(out) ? out.at(-1) : out // a range answers with every match; the last is the newest
-  if (!manifest?.name) throw refuse(`npm view ${spec}: no such package`)
-  return { kind: "registry", spec: `${manifest.name}@${manifest.version}`, manifest }
+  const r = spawnSync(npm, ["view", spec, ...NPM_VIEW_FIELDS], {
+    encoding: "utf8",
+    cwd,
+    env: childEnv(),
+    timeout: 120_000,
+  })
+  return parseNpmView(spec, r)
 }

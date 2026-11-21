@@ -186,6 +186,21 @@ export interface ModuleRecordRow {
   fields: ModuleFields
 }
 
+/** One package `updateCheck` looked at: the engine or an npm module, what is installed and the newest release. */
+export interface UpdateCheckRow {
+  name: string
+  kind: "engine" | "module"
+  installed: string | null
+  /** The version `dt update` would move to; null for a development link, or when the registry did not answer. */
+  latest: string | null
+  /** A development link (`npm link`, a folder spec): never pinned, so never offered. */
+  linked: boolean
+  /** `latest` is newer than `installed`. */
+  outdated: boolean
+  /** Why `latest` is unknown — the registry's refusal, in one line. */
+  error?: string
+}
+
 /** The display contract (descriptor v2, design §4.3): what every surface draws from. */
 export interface PresentationChoice {
   label: string
