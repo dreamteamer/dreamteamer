@@ -5,9 +5,9 @@ Docker host, a behaviour-test runner, an exporter to one vendor — is an **exte
 calls, which a workspace has when it wants that capability and does without otherwise.
 
 The verbs core does not ship live in packages: `prove` in `@dreamteamer/proofs`, `land` and
-`worktree` in `@dreamteamer/worktrees`, `serve` in `@dreamteamer/http`, `notebooklm` in
-`@dreamteamer/notebooklm`, and the container verbs in the global `dt-docker` bin. Typed without the
-package, each exits 2 and prints its install line.
+`worktree` in `@dreamteamer/worktrees`, `notebooklm` in `@dreamteamer/notebooklm`, and the container
+verbs in the global `dt-docker` bin. Typed without the package, each exits 2 and prints its install
+line. `dt web` and `dt serve` are retired (0.52.0): the desktop app is the surface for people.
 
 `dt status` lists the extensions this workspace loaded, `dt help` appends each one's usage, and
 `dt doctor` shows what works on this machine — the engine's rows, then each extension's checks.

@@ -16,8 +16,8 @@ opening a normal issue that says only "sent a security report", with no details 
 
 `dreamteamer` is a local command-line tool and library. It reads and writes files in a workspace you
 control, shells out to `git` and `npm`, and runs the code of the extensions a workspace installs, in
-process. Some extensions bind a server to localhost with **no authentication** (for example
-`dt serve`, from `@dreamteamer/http`), on the assumption that only you can reach it.
+process. An extension may bind a server to localhost with **no authentication** (the retired
+`dt serve`, from `@dreamteamer/http`, did), on the assumption that only you can reach it.
 
 That server is a deliberate design decision, not an oversight: the server is a local development
 surface. Exposing it to a network is out of scope, and doing so is unsafe.

@@ -29,7 +29,8 @@ import {
   NAV_FILE,
 } from "../record/nav.ts"
 
-export const NAV_SETTINGS_LINE = "nav: settings found, migrated on the next open of the editor or dt web"
+export const NAV_SETTINGS_LINE =
+  "nav: settings found, not in nav.yaml yet — run: npx -p @dreamteamer/protocol@0.3 dt-nav migrate (or open this workspace once in the editor 0.27 or later)"
 export const NAV_GUARD_LINE =
   "your nav settings are not saved to nav.yaml yet — run: npx -p @dreamteamer/protocol@0.3 dt-nav migrate (or open this workspace once in the editor 0.27 or later), then run this again; --allow nav-reset skips it"
 const NAV_KEYS = ["dreamteamer.navGroups", "dreamteamer.navOrder", "dreamteamer.navHidden"]

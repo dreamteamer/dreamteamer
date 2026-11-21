@@ -30,6 +30,8 @@ export type {
   NavDoc,
   NavEntry,
   NavWarning,
+  ModuleFields,
+  ModuleRecordRow,
 } from "./types.ts"
 
 import { openWorkspace } from "./openWorkspace.ts"
@@ -105,13 +107,18 @@ export { validateTemplate } from "./record/validateTemplate.ts"
 export { renderDisplay } from "./record/renderDisplay.ts"
 export { satisfies } from "./lib/npm/satisfies.ts"
 // the nav document (cr-dt-008): nav.yaml read, checked and written, and the shipped fragments merged into it —
-// what every host (the editor, dt web) uses, so there is one grammar and one writer
+// what every host (the desktop app, the editor) uses, so there is one grammar and one writer
 export { readNavDoc, validateNavDoc, writeNavDoc } from "./record/nav.ts"
 export { applyNavFragments } from "./workspace/navFragments.ts"
 
 export { compile, warnIfStale, CompileError } from "./compile/compile.ts"
 export { staleness } from "./compile/staleness.ts"
 export { discoverModules } from "./workspace/discoverModules.ts"
+// the compiled module records: what the app lists and scopes by instead of parsing .dreamteamer/modules/*.yaml
+export { moduleRows } from "./workspace/moduleRows.ts"
+// commits a repo has that its upstream does not — the count `dt commit` reports after a write; the
+// pending half of the same picture is `commitPending(store, { dryRun: true })`
+export { aheadCount } from "./workspace/lib/aheadCount.ts"
 export { KINDS } from "./compile/consts.ts"
 export { MANAGED_BLOCKS } from "./doctor/consts.ts"
 export { createCollection } from "./collections/createCollection.ts"

@@ -1,6 +1,6 @@
 // The nav document — `nav.yaml` at the workspace root (cr-dt-008, design §3). One tracked file says how
 // the left nav draws: folders, namespace folders and rows in the operator's order, plus the rows not
-// drawn at all. Every host (the editor, dt web, install's merge) reads and writes it through these
+// drawn at all. Every host (the desktop app, the editor, install's merge) reads and writes it through these
 // functions, so there is one grammar and one writer.
 //
 // Record layer: a file under the root, parsed and validated against names the caller passes in. It

@@ -107,13 +107,13 @@ Designed by coders, for both humans and AI agents, dreamteamer is built with dec
   - [x] **Versioned** - every module is pinned to an exact version and committed changes are in Git history, so you can move between versions of schemas and data at will
 - **Developer experience**
   - [x] **CLI driven** - All functionality is exposed through a CLI
-  - [x] **Programmable** - import dreamteamer into your js/ts scripts, work with the same interface
+  - [x] **Programmable** - import dreamteamer into your js/ts scripts, work with the same interface: the `dt` CLI and the exported API run the same code, so a script, an agent and the desktop app get one answer
   - [x] **AI primitives** - skills, agents, and commands are first-class citizens in every module
   - [x] **Extensible** - an extension adds verbs, source kinds and harnesses through one contract (see [EXTENDING.md](EXTENDING.md))
   - [x] **Portable** - sync changes through git, move between machines, and parallelize work across agents and harness instances
 - **User experience**
   - [x] **Conversational** - all engine and installed modules functionality exposed through natural language commands
-  - [x] **Presentational** - every data entity exposes display metadata in its schema, making it immediately presentable to arbitrary UI clients. [ui-views](collections/ui-views.collection.yaml) provide out-of-the-box configurable list and item views for every entity. The [@dreamteamer/ui](https://github.com/dreamteamer/dreamteamer-modules/tree/main/modules/ui) package provides a core set of UI elements. The [dreamteamer VS Code extension](https://marketplace.visualstudio.com/items?itemName=dreamteamer.dreamteamer-vscode) renders those views in VS Code, and the [@dreamteamer/web](https://github.com/dreamteamer/dreamteamer-modules/tree/main/modules/web) module shows the same UI in agent desktop apps such as Claude Desktop and Codex.
+  - [x] **Presentational** - every data entity exposes display metadata in its schema, making it immediately presentable to arbitrary UI clients. [ui-views](collections/ui-views.collection.yaml) provide out-of-the-box configurable list and item views for every entity. The dreamteamer desktop app renders those views for people, loading the engine in-process, and the [dreamteamer VS Code extension](https://marketplace.visualstudio.com/items?itemName=dreamteamer.dreamteamer-vscode) renders them in VS Code.
   - [x] **Collaborative** - leverage GIT to collaborate on workspaces and share changes with other users, AI agents, or in parallel across multiple sessions and machines.
 
 ### Security considerations

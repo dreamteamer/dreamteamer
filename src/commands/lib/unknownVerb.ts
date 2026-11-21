@@ -9,8 +9,6 @@ const VERB_PACKAGES: Record<string, string> = {
   prove: "@dreamteamer/proofs",
   land: "@dreamteamer/worktrees",
   worktree: "@dreamteamer/worktrees",
-  serve: "@dreamteamer/web",
-  web: "@dreamteamer/web",
   notebooklm: "@dreamteamer/notebooklm",
 }
 const DOCKER_VERBS = new Set(["start", "stop", "open", "export", "import"])
@@ -74,6 +72,14 @@ export function unknownVerb(cmd: string): number {
     )
     console.error("    dt next <collection>[/<id>]   which bound commands apply to this record, and in which state")
     console.error("    dt list commands              the command entities this workspace ships")
+    return 2
+  }
+  // `dt web` and `dt serve` served the UI from a module; since 0.52.0 the desktop app is the one
+  // surface for people and there is no package to install — so the answer names the app, not a package.
+  if (cmd === "web" || cmd === "serve") {
+    console.error(
+      `✖ \`dt ${cmd}\` is retired since 0.52.0 — the dreamteamer desktop app is the surface for people; agents use the dt verbs`
+    )
     return 2
   }
   if (VERB_PACKAGES[cmd]) {
