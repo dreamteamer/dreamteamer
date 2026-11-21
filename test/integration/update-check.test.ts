@@ -135,7 +135,7 @@ describe("drift: a pulled upgrade, pins moved and node_modules not", () => {
 
   test("dt install brings node_modules to the pins, and the drift is gone", () => {
     const ws = pulled()
-    const r = ws.dt!("install", "--no-input")
+    const r = ws.dt!("install")
     assert.equal(r.code, 0, r.stdout + r.stderr)
     assert.equal(versionOf(ws.root), "1.1.0")
     assert.deepEqual(
