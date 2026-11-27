@@ -2,6 +2,7 @@
 export const SCALAR_TYPES = [
   "string",
   "markdown",
+  "html",
   "boolean",
   "integer",
   "number",
@@ -28,6 +29,12 @@ export const EXT: Record<string, string> = { md: ".md", yaml: ".yaml", json: ".j
  * not fit the video someone will one day try to make a record.
  */
 export const MAX_RECORD_BYTES = 204800
+
+/**
+ * The longest `html` value, in characters as `maxLength` counts them, when its field declares no
+ * `maxLength`. The same number as a binary record, so a page past it is a file record of its own.
+ */
+export const HTML_MAX_LENGTH = 204800
 
 export const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/
 

@@ -6,7 +6,7 @@ import { nextVersion, withVersion, hebrewAllowed, scan } from "../../scripts/rel
 
 const at = new Date("2026-11-19T14:30:05.123Z")
 const file = (path, text) => ({ path, bytes: Buffer.from(text) })
-const clean = { names: null, hebrewAllowed: new Set() }
+const clean = { names: null, hebrewAllowed: new Set<string>() }
 
 test("a stable version becomes a prerelease of its next patch, stamped with time and commit", () => {
   assert.equal(nextVersion("0.50.0", at, "7b95f2d"), "0.50.1-next.20261119143005.g7b95f2d")

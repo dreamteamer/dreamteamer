@@ -22,6 +22,27 @@ then `npx dreamteamer compile` and `npx dreamteamer check`.
 
 ---
 
+## 0.54.0 — an `html` field type
+
+Nothing to do but `dt compile`. A field can now be declared as a page of static HTML:
+
+```bash
+npx dreamteamer add-field pages --name page --type html
+```
+
+- **`type: html`** is a string whose schema carries `format: html`. Markup is stored as written and never validated
+  or rewritten; what a surface does with it (draw it, export it as text) is the surface's business.
+- **Its limit is the field's `maxLength`, else 204,800 characters** (characters, not bytes). Compile writes the
+  default onto the compiled field and records it under `defaults`, so `dt set` and `dt add` refuse a longer value
+  before disk and `dt check` reports one written by hand. The source stays as you wrote it.
+- **A workspace that declares the type needs this engine.** An older engine refuses it at compile
+  (`unknown type html`), so pin 0.54.0 before a module or a collection of yours uses it. A field that is a `string`
+  with `display.viewer: html` keeps working exactly as before.
+- **Not refused:** a collection named `html`. Avoid the name; a reference field written `type: html` is read as this
+  type, not as a reference to such a collection.
+
+---
+
 ## 0.53.0 — `dt update --check` and `--all`
 
 Nothing to do but `dt compile`. Two new ways to run `dt update`, for a person in the desktop app and an agent alike:

@@ -132,8 +132,8 @@ collection: the ENGINE does not read one, and \`rename-field\` was the only capa
                             [--enum a,b] [--default-value v] [--unique] [--mirror-of <field>]
                             [--on-delete restrict|set-null] [--soft] [--sensitive] [--body]
                             [--description "…"] [--module <m>]
-                            types: string markdown boolean integer number date datetime url email
-                                   reference map position, a collection name (a reference), or
+                            types: string markdown html boolean integer number date datetime url
+                                   email reference map position, a collection name (a reference), or
                                    a,b for a union of collections (an object's sub-fields are
                                    authored in the descriptor). --many makes it a list; a
                                    date-time may be written as "2026-07-28 12:00" and the local

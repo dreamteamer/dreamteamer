@@ -53,6 +53,7 @@ export function check(
   })
   ;(addFormats as unknown as typeof addFormats.default)(ajv)
   ajv.addFormat("markdown", true) // rich-text marker, not a syntax to validate
+  ajv.addFormat("html", true) // likewise: markup is stored as written, never validated
 
   const descriptors = loadDescriptors(root)
   if (!descriptors) {

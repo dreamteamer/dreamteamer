@@ -39,6 +39,7 @@ const DEFAULT_RECORD_LAYOUT = "page"
 const WIRE_TYPES = new Set([
   "string",
   "markdown",
+  "html",
   "integer",
   "number",
   "boolean",

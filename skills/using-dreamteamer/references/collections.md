@@ -66,6 +66,7 @@ The top-level keys, closed (any other is a compile error naming the list):
 | `type` | stores | notes |
 |---|---|---|
 | `string` · `markdown` | text | `markdown` with `body: true` is the record's prose, one per collection, kept last |
+| `html` | a static page, as written | at most its `maxLength`, else 204,800 characters; never validated as markup, and a surface that draws it decides what may run |
 | `boolean` · `integer` · `number` | as named | |
 | `date` · `datetime` | `2026-10-02` · an instant with its offset | the CLI stamps the local offset on `"2026-10-02 12:00"` |
 | `url` · `email` | text, format-checked | |
