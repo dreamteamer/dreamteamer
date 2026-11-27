@@ -52,30 +52,33 @@ describe("html: a field type", () => {
 })
 
 describe("html: the limit", () => {
-  test("with no maxLength, 204,800 characters are written and 204,801 are refused with nothing written", () => {
+  // The 204,800 boundary is driven through the store, in process: Linux caps ONE argv string at
+  // MAX_ARG_STRLEN (131,072 bytes), so a page that size cannot reach `dt` as an argument at all —
+  // spawn fails with E2BIG and no exit code, which a test asserting only "non-zero" would read as a
+  // refusal. The CLI path is proven below with a declared limit small enough for every OS.
+  const atLimit = "<p>" + "é".repeat(LIMIT - 7) + "</p>" // characters, not bytes: é is two bytes in UTF-8
+  const TOO_LONG = new RegExp(`must NOT have more than ${LIMIT} characters`)
+
+  test("with no maxLength, the store writes 204,800 characters and refuses 204,801, changing nothing", () => {
     const w = fresh()
-    const ref = "pages/welcome"
-    const atLimit = "<p>" + "é".repeat(LIMIT - 7) + "</p>" // characters, not bytes: é is two bytes in UTF-8
     assert.equal(atLimit.length, LIMIT)
-    ok(w.dt("set", ref, `page=${atLimit}`))
+    w.store!.set("pages", "welcome", { page: atLimit })
     assert.equal(pageOf(w.root, "welcome"), atLimit)
 
     const before = readFile(w.root, "data/pages/welcome.page.md")
-    const over = atLimit + "x"
-    const res = w.dt("set", ref, `page=${over}`)
-    assert.notEqual(res.code, 0, "a value one character over the default limit is refused")
-    assert.match(res.stdout + res.stderr, /page/)
+    assert.throws(() => w.store!.set("pages", "welcome", { page: atLimit + "x" }), TOO_LONG)
     assert.equal(readFile(w.root, "data/pages/welcome.page.md"), before, "the refused write changed nothing on disk")
   })
 
-  test("dt add refuses an over-limit page and writes no record", () => {
+  test("the store adds a record holding 204,800 characters and refuses one holding 204,801, writing no file", () => {
     const w = fresh()
-    const res = w.dt("add", "pages", "Too long", "--page", "x".repeat(LIMIT + 1))
-    assert.notEqual(res.code, 0)
+    w.store!.add("pages", { name: "At limit", page: atLimit })
+    assert.equal(pageOf(w.root, "at-limit"), atLimit)
+    assert.throws(() => w.store!.add("pages", { name: "Too long", page: "x".repeat(LIMIT + 1) }), TOO_LONG)
     assert.equal(fs.existsSync(path.join(w.root, "data/pages/too-long.page.md")), false)
   })
 
-  test("a declared maxLength is the limit instead of the default", () => {
+  test("a declared maxLength is the limit instead of the default, through dt set and dt add", () => {
     const w = fresh()
     const file = path.join(w.root, SOURCE)
     fs.writeFileSync(
@@ -91,8 +94,22 @@ describe("html: the limit", () => {
       undefined,
       "an authored maxLength is not a default"
     )
-    ok(w.dt("set", "pages/welcome", "page=<b>ok</b>"))
-    assert.notEqual(w.dt("set", "pages/welcome", "page=<b>too long</b>").code, 0)
+    // a refusal is exit 1 with the reason: a spawn that never ran has no exit code and no reason
+    const refused = (res: { code: number | null; stdout: string; stderr: string }) => {
+      assert.equal(res.code, 1, res.stdout + res.stderr)
+      assert.match(res.stdout + res.stderr, /must NOT have more than 10 characters/)
+      assert.match(res.stdout + res.stderr, /nothing was written/)
+    }
+    ok(w.dt("set", "pages/welcome", "page=<b>12</b>"))
+    assert.equal(pageOf(w.root, "welcome"), "<b>12</b>")
+    const before = readFile(w.root, "data/pages/welcome.page.md")
+    refused(w.dt("set", "pages/welcome", "page=<b>12345</b>"))
+    assert.equal(readFile(w.root, "data/pages/welcome.page.md"), before)
+
+    ok(w.dt("add", "pages", "Short", "--page", "<i>12</i>"))
+    assert.equal(pageOf(w.root, "short"), "<i>12</i>")
+    refused(w.dt("add", "pages", "Long", "--page", "<i>12345</i>"))
+    assert.equal(fs.existsSync(path.join(w.root, "data/pages/long.page.md")), false)
   })
 
   test("dt check reports a hand-edited page over the limit and exits non-zero", () => {
