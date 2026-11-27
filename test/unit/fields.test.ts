@@ -28,6 +28,7 @@ describe("types", () => {
   const cases = [
     ["string", { type: "string" }],
     ["markdown", { type: "string", format: "markdown" }],
+    ["html", { type: "string", format: "html", maxLength: 204800 }],
     ["boolean", { type: "boolean" }],
     ["integer", { type: "integer" }],
     ["number", { type: "number" }],
@@ -46,6 +47,21 @@ describe("types", () => {
       assert.deepEqual(toJsonSchema(fields, { collections }).properties.f, want)
     })
   }
+
+  test("html: a field that declares no maxLength gets 204,800, recorded as a default; a declared one wins", () => {
+    const { fields, defaults } = resolve({ page: { type: "html" }, short: { type: "html", maxLength: 10 } })
+    assert.equal(fields.page.maxLength, 204800)
+    assert.deepEqual(defaults.page, { title: "Page", maxLength: 204800 })
+    assert.equal(fields.short.maxLength, 10)
+    assert.equal(defaults.short.maxLength, undefined)
+    const schema = toJsonSchema(fields, { collections }).properties
+    assert.equal(schema.short.maxLength, 10)
+    // nested in an object, where compile supplies no defaults, the type still carries its limit
+    const nested = toJsonSchema(resolve({ o: { type: "object", fields: { p: { type: "html" } } } }).fields, {
+      collections,
+    }).properties.o.properties.p
+    assert.equal(nested.maxLength, 204800)
+  })
 
   test("position is a string so a fractional key (a-z by design) validates", () => {
     const s = toJsonSchema(resolve({ order: { type: "position" } }).fields, { collections }).properties.order
@@ -78,6 +94,7 @@ describe("types", () => {
     assert.deepEqual(SCALAR_TYPES, [
       "string",
       "markdown",
+      "html",
       "boolean",
       "integer",
       "number",

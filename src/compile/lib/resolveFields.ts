@@ -1,4 +1,4 @@
-import { INJECTED_FIELDS } from "../../record/consts.ts"
+import { HTML_MAX_LENGTH, INJECTED_FIELDS } from "../../record/consts.ts"
 import { SCALAR_TYPES } from "../../record/consts.ts"
 import { enumValues, fieldTitleOf, referenceTargets } from "../../record/fields.ts"
 import type { Field } from "../../types.ts"
@@ -98,6 +98,10 @@ export function resolveFields(
     if (targets && out.on_delete === undefined && out.mirror_of === undefined) {
       out.on_delete = "restrict"
       d.on_delete = "restrict"
+    }
+    if (out.type === "html" && out.maxLength === undefined) {
+      out.maxLength = HTML_MAX_LENGTH
+      d.maxLength = HTML_MAX_LENGTH
     }
     if (Object.keys(d).length) defaults[name] = d
     fields[name] = out

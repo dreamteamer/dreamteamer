@@ -233,6 +233,7 @@ export interface PresentationField {
   type:
     | "string"
     | "markdown"
+    | "html"
     | "integer"
     | "number"
     | "boolean"

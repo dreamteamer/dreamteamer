@@ -101,6 +101,7 @@ const schemaAjv = () => {
     ajv = new (Ajv as unknown as typeof Ajv.default)({ allErrors: true, strict: false })
     ;(addFormats as unknown as typeof addFormats.default)(ajv)
     ajv.addFormat("markdown", true)
+    ajv.addFormat("html", true)
   }
   return ajv
 }

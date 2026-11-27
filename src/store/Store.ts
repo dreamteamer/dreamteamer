@@ -90,6 +90,7 @@ export class Store {
     })
     ;(addFormats as unknown as typeof addFormats.default)(this.ajv)
     this.ajv.addFormat("markdown", true)
+    this.ajv.addFormat("html", true)
     this._idsCache = new Map() // collection -> { key, ids } (see ids())
     this._duplicates = new Map() // placed collection -> id -> [files], refreshed by every walk (see assertUnambiguous)
     this._head = undefined // memoized `git rev-parse HEAD` (see gitHead())

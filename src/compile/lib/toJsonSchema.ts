@@ -1,3 +1,4 @@
+import { HTML_MAX_LENGTH } from "../../record/consts.ts"
 import { enumValues, referenceTargets } from "../../record/fields.ts"
 import type { Field } from "../../types.ts"
 
@@ -59,6 +60,8 @@ function scalarSchema(f: Field, collections: Set<string> | undefined): Record<st
       return f.enum !== undefined ? { type: "string", enum: enumValues(f.enum) } : { type: "string" }
     case "markdown":
       return { type: "string", format: "markdown" }
+    case "html":
+      return { type: "string", format: "html", maxLength: HTML_MAX_LENGTH }
     case "boolean":
       return { type: "boolean" }
     case "integer":
